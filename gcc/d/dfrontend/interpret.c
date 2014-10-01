@@ -102,12 +102,14 @@ struct InterState
     InterState *caller;         // calling function's InterState
     FuncDeclaration *fd;        // function being interpreted
     Statement *start;           // if !=NULL, start execution at this statement
-    Statement *gotoTarget;      /* target of EXP_GOTO_INTERPRET result; also
-                                 * target of labelled EXP_BREAK_INTERPRET or
-                                 * EXP_CONTINUE_INTERPRET. (NULL if no label).
-                                 */
-    bool awaitingLvalueReturn;  // Support for ref return values:
-           // Any return to this function should return an lvalue.
+    /* target of EXP_GOTO_INTERPRET result; also
+     * target of labelled EXP_BREAK_INTERPRET or
+     * EXP_CONTINUE_INTERPRET. (NULL if no label).
+     */
+    Statement *gotoTarget;
+    // Support for ref return values:
+    // Any return to this function should return an lvalue.
+    bool awaitingLvalueReturn;
     InterState();
 };
 
@@ -2073,7 +2075,7 @@ Expression *Expression::interpret(InterState *istate, CtfeGoal goal)
 #if LOG
     printf("%s Expression::interpret() %s\n", loc.toChars(), toChars());
     printf("type = %s\n", type->toChars());
-    dump(0);
+    print();
 #endif
     error("Cannot interpret %s at compile time", toChars());
     return EXP_CANT_INTERPRET;
@@ -4373,8 +4375,10 @@ Expression *interpretAssignToSlice(InterState *istate, CtfeGoal goal, Loc loc,
         for (size_t j = 0; j < upperbound-lowerbound; j++)
         {
             if (!directblk)
+            {
                 // Multidimensional array block assign
                 recursiveBlockAssign((ArrayLiteralExp *)(*w)[(size_t)(j+firstIndex)], newval, wantRef);
+            }
             else
             {
                 if (wantRef || cow)

@@ -15,6 +15,7 @@
 
 #include "mars.h"
 #include "arraytypes.h"
+#include "visitor.h"
 
 class Identifier;
 class Expression;
@@ -58,6 +59,7 @@ public:
     virtual StructInitializer  *isStructInitializer()  { return NULL; }
     virtual ArrayInitializer   *isArrayInitializer()  { return NULL; }
     virtual ExpInitializer     *isExpInitializer()  { return NULL; }
+    virtual void accept(Visitor *v) { v->visit(this); }
 };
 
 class VoidInitializer : public Initializer
@@ -74,6 +76,7 @@ public:
     dt_t *toDt();
 
     virtual VoidInitializer *isVoidInitializer() { return this; }
+    void accept(Visitor *v) { v->visit(this); }
 };
 
 class ErrorInitializer : public Initializer
@@ -86,6 +89,7 @@ public:
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     virtual ErrorInitializer *isErrorInitializer() { return this; }
+    void accept(Visitor *v) { v->visit(this); }
 };
 
 class StructInitializer : public Initializer
@@ -104,6 +108,7 @@ public:
     dt_t *toDt();
 
     StructInitializer *isStructInitializer() { return this; }
+    void accept(Visitor *v) { v->visit(this); }
 };
 
 class ArrayInitializer : public Initializer
@@ -128,6 +133,7 @@ public:
     dt_t *toDt();
 
     ArrayInitializer *isArrayInitializer() { return this; }
+    void accept(Visitor *v) { v->visit(this); }
 };
 
 class ExpInitializer : public Initializer
@@ -146,6 +152,7 @@ public:
     dt_t *toDt();
 
     virtual ExpInitializer *isExpInitializer() { return this; }
+    void accept(Visitor *v) { v->visit(this); }
 };
 
 #endif

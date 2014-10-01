@@ -186,14 +186,6 @@ ExtAsmStatement::toCBuffer (OutBuffer *buf, HdrGenState *hgs ATTRIBUTE_UNUSED)
   buf->writenl();
 }
 
-// TRUE if statement 'comes from' somewhere else, like a goto.
-
-bool
-ExtAsmStatement::comeFromImpl()
-{
-  return true;
-}
-
 // Return how an ExtAsmStatement exits.
 
 int

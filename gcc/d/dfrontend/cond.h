@@ -18,7 +18,7 @@ class Module;
 struct Scope;
 class ScopeDsymbol;
 class DebugCondition;
-#include "lexer.h" // dmdhg
+#include "lexer.h"
 enum TOK;
 struct HdrGenState;
 
@@ -28,9 +28,10 @@ class Condition
 {
 public:
     Loc loc;
-    int inc;            // 0: not computed yet
-                        // 1: include
-                        // 2: do not include
+    // 0: not computed yet
+    // 1: include
+    // 2: do not include
+    int inc;
 
     Condition(Loc loc);
 

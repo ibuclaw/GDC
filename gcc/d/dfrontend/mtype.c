@@ -1551,8 +1551,7 @@ char *MODtoChars(unsigned char mod)
     OutBuffer buf;
     buf.reserve(16);
     MODtoBuffer(&buf, mod);
-    buf.writebyte(0);
-    return buf.extractData();
+    return buf.extractString();
 }
 
 /********************************
@@ -1581,8 +1580,7 @@ char *Type::toChars()
     HdrGenState hgs;
 
     toCBuffer(&buf, NULL, &hgs);
-    buf.writebyte(0);
-    return buf.extractData();
+    return buf.extractString();
 }
 
 void Type::toCBuffer(OutBuffer *buf, Identifier *ident, HdrGenState *hgs)
@@ -1657,8 +1655,7 @@ char *Type::modToChars()
     OutBuffer buf;
     buf.reserve(16);
     modToBuffer(&buf);
-    buf.writebyte(0);
-    return buf.extractData();
+    return buf.extractString();
 }
 
 /************************************
@@ -1976,7 +1973,7 @@ MATCH Type::constConv(Type *to)
  * Return MOD bits matching this type to wild parameter type (tprm).
  */
 
-unsigned Type::deduceWild(Type *t, bool isRef)
+unsigned char Type::deduceWild(Type *t, bool isRef)
 {
     //printf("Type::deduceWild this = '%s', tprm = '%s'\n", toChars(), tprm->toChars());
 
@@ -2003,7 +2000,7 @@ Type *Type::unqualify(unsigned m)
     Type *t = mutableOf()->unSharedOf();
 
     Type *tn = nextOf();
-    if (tn && tn->ty != Tfunction/*!(ty == Tpointer && tn->ty == Tfunction)*/)
+    if (tn && tn->ty != Tfunction)
     {
         Type *utn = tn->unqualify(m);
         if (utn != tn)
@@ -2890,12 +2887,12 @@ MATCH TypeNext::constConv(Type *to)
     return m;
 }
 
-unsigned TypeNext::deduceWild(Type *t, bool isRef)
+unsigned char TypeNext::deduceWild(Type *t, bool isRef)
 {
     if (ty == Tfunction)
         return 0;
 
-    unsigned wm;
+    unsigned char wm;
 
     Type *tn = t->nextOf();
     if (!isRef && (ty == Tarray || ty == Tpointer) && tn)
@@ -4512,8 +4509,10 @@ int TypeSArray::hasPointers()
         //return false;
 
     if (next->ty == Tvoid)
+    {
         // Arrays of void contain arbitrary data, which may include pointers
         return true;
+    }
     else
         return next->hasPointers();
 }
@@ -4779,7 +4778,7 @@ Type *TypeAArray::syntaxCopy()
 
 d_uns64 TypeAArray::size(Loc loc)
 {
-    return Target::ptrsize /* * 2*/;
+    return Target::ptrsize;
 }
 
 
@@ -6226,7 +6225,7 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
 {
     //printf("TypeFunction::callMatch() %s\n", toChars());
     MATCH match = MATCHexact;           // assume exact match
-    unsigned wildmatch = 0;
+    unsigned char wildmatch = 0;
 
     if (tthis)
     {   Type *t = tthis;
@@ -6334,8 +6333,10 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
         {
             //printf("%s of type %s implicitConvTo %s\n", arg->toChars(), targ->toChars(), tprm->toChars());
             if (flag)
+            {
                 // for partial ordering, value is an irrelevant mockup, just look at the type
                 m = targ->implicitConvTo(tprm);
+            }
             else
                 m = arg->implicitConvTo(tprm);
             //printf("match %d\n", m);
@@ -8321,7 +8322,7 @@ Expression *TypeStruct::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
 
         Expression *e0 = NULL;
         Expression *ev = e->op == TOKtype ? NULL : e;
-        if (sc->func && ev && ev->hasSideEffect())
+        if (sc->func && ev && hasSideEffect(ev))
         {
             Identifier *id = Lexer::uniqueId("__tup");
             ExpInitializer *ei = new ExpInitializer(e->loc, ev);
@@ -8765,12 +8766,12 @@ MATCH TypeStruct::constConv(Type *to)
     return MATCHnomatch;
 }
 
-unsigned TypeStruct::deduceWild(Type *t, bool isRef)
+unsigned char TypeStruct::deduceWild(Type *t, bool isRef)
 {
     if (ty == t->ty && sym == ((TypeStruct *)t)->sym)
         return Type::deduceWild(t, isRef);
 
-    unsigned wm = 0;
+    unsigned char wm = 0;
 
     if (t->hasWild() && sym->aliasthis && !(att & RECtracing))
     {
@@ -8898,7 +8899,7 @@ Expression *TypeClass::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
 
         Expression *e0 = NULL;
         Expression *ev = e->op == TOKtype ? NULL : e;
-        if (sc->func && ev && ev->hasSideEffect())
+        if (sc->func && ev && hasSideEffect(ev))
         {
             Identifier *id = Lexer::uniqueId("__tup");
             ExpInitializer *ei = new ExpInitializer(e->loc, ev);
@@ -9308,13 +9309,13 @@ MATCH TypeClass::constConv(Type *to)
     return MATCHnomatch;
 }
 
-unsigned TypeClass::deduceWild(Type *t, bool isRef)
+unsigned char TypeClass::deduceWild(Type *t, bool isRef)
 {
     ClassDeclaration *cd = t->isClassHandle();
     if (cd && (sym == cd || cd->isBaseOf(sym, NULL)))
         return Type::deduceWild(t, isRef);
 
-    unsigned wm = 0;
+    unsigned char wm = 0;
 
     if (t->hasWild() && sym->aliasthis && !(att & RECtracing))
     {
@@ -9826,7 +9827,7 @@ char *Parameter::argsTypesToChars(Parameters *args, int varargs)
     HdrGenState hgs;
     argsToCBuffer(&buf, &hgs, args, varargs);
 
-    buf.writebyte(0);
+    buf.writeByte(0);
     return buf.extractData();
 }
 

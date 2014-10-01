@@ -73,22 +73,13 @@ void Module::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     {
         buf->writestring("module ");
         buf->writestring(md->toChars());
-        buf->writebyte(';');
+        buf->writeByte(';');
         buf->writenl();
     }
 
     for (size_t i = 0; i < members->dim; i++)
     {   Dsymbol *s = (*members)[i];
 
-        s->toHBuffer(buf, hgs);
+        s->toCBuffer(buf, hgs);
     }
 }
-
-
-void Dsymbol::toHBuffer(OutBuffer *buf, HdrGenState *hgs)
-{
-    toCBuffer(buf, hgs);
-}
-
-
-/*************************************/

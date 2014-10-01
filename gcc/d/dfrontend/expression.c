@@ -1817,7 +1817,7 @@ void expToCBuffer(OutBuffer *buf, HdrGenState *hgs, Expression *e, PREC pr)
     assert(precedence[e->op] != PREC_zero);
     assert(pr != PREC_zero);
 
-    //if (precedence[e->op] == 0) e->dump(0);
+    //if (precedence[e->op] == 0) e->print();
     if (precedence[e->op] < pr ||
         /* Despite precedence, we don't allow a<b<c expressions.
          * They must be parenthesized.
@@ -1929,7 +1929,7 @@ void Expression::init()
 Expression *Expression::syntaxCopy()
 {
     //printf("Expression::syntaxCopy()\n");
-    //dump(0);
+    //print();
     return copy();
 }
 
@@ -1945,7 +1945,7 @@ Expression *Expression::copy()
 #ifdef DEBUG
         fprintf(stderr, "No expression copy for: %s\n", toChars());
         printf("op = %d\n", op);
-        dump(0);
+        print();
 #endif
         assert(0);
     }
@@ -2002,10 +2002,7 @@ char *Expression::toChars()
 
     OutBuffer buf;
     toCBuffer(&buf, &hgs);
-    buf.writeByte(0);
-    char *p = (char *)buf.data;
-    buf.data = NULL;
-    return p;
+    return buf.extractString();
 }
 
 void Expression::error(const char *format, ...)
@@ -2047,7 +2044,7 @@ int Expression::rvalue(bool allowVoid)
     {
         error("expression %s is void and has no value", toChars());
 #if 0
-        dump(0);
+        print();
         halt();
 #endif
         if (!global.gag)
@@ -2103,7 +2100,7 @@ complex_t Expression::toComplex()
     return (complex_t)0.0;
 }
 
-StringExp *Expression::toString()
+StringExp *Expression::toStringExp()
 {
     return NULL;
 }
@@ -2481,7 +2478,7 @@ Expression *Expression::checkToBoolean(Scope *sc)
 
 #ifdef DEBUG
     if (!type)
-        dump(0);
+        print();
     assert(type);
 #endif
 
@@ -2896,18 +2893,7 @@ void IntegerExp::toMangleBuffer(OutBuffer *buf)
     if ((sinteger_t)value < 0)
         buf->printf("N%lld", -value);
     else
-    {
-        /* This is an awful hack to maintain backwards compatibility.
-         * There really always should be an 'i' before a number, but
-         * there wasn't in earlier implementations, so to maintain
-         * backwards compatibility it is only done if necessary to disambiguate.
-         * See bugzilla 3029
-         */
-        if (buf->offset > 0 && isdigit(buf->data[buf->offset - 1]))
-            buf->writeByte('i');
-
-        buf->printf("%lld", value);
-    }
+        buf->printf("i%lld", value);
 }
 
 /******************************** ErrorExp **************************/
@@ -3830,7 +3816,7 @@ int NullExp::isBool(int result)
     return result ? false : true;
 }
 
-StringExp *NullExp::toString()
+StringExp *NullExp::toStringExp()
 {
     if (implicitConvTo(Type::tstring))
     {
@@ -4035,7 +4021,7 @@ size_t StringExp::length()
     return result;
 }
 
-StringExp *StringExp::toString()
+StringExp *StringExp::toStringExp()
 {
     return this;
 }
@@ -4349,7 +4335,7 @@ int ArrayLiteralExp::isBool(int result)
     return result ? (dim != 0) : (dim == 0);
 }
 
-StringExp *ArrayLiteralExp::toString()
+StringExp *ArrayLiteralExp::toStringExp()
 {
     TY telem = type->nextOf()->toBasetype()->ty;
 
@@ -4368,13 +4354,13 @@ StringExp *ArrayLiteralExp::toString()
                 Expression *ch = (*elements)[i];
                 if (ch->op != TOKint64)
                     return NULL;
-                     if (sz == 1) buf.writebyte((unsigned)ch->toInteger());
+                     if (sz == 1) buf.writeByte((unsigned)ch->toInteger());
                 else if (sz == 2) buf.writeword((unsigned)ch->toInteger());
                 else              buf.write4((unsigned)ch->toInteger());
             }
         }
         char prefix;
-             if (sz == 1) { prefix = 'c'; buf.writebyte(0); }
+             if (sz == 1) { prefix = 'c'; buf.writeByte(0); }
         else if (sz == 2) { prefix = 'w'; buf.writeword(0); }
         else              { prefix = 'd'; buf.write4(0); }
 
@@ -7066,7 +7052,7 @@ Expression *BinAssignExp::semantic(Scope *sc)
         if (e->op == TOKerror)
             return e;
         type = e1->type;
-        return arrayOp(sc);
+        return arrayOp(this, sc);
     }
 
     e1 = e1->semantic(sc);
@@ -7207,7 +7193,7 @@ Expression *CompileExp::semantic(Scope *sc)
         return new ErrorExp();
     }
     e1 = e1->ctfeInterpret();
-    StringExp *se = e1->toString();
+    StringExp *se = e1->toStringExp();
     if (!se)
     {   error("argument to mixin must be a string, not (%s)", e1->toChars());
         return new ErrorExp();
@@ -7487,7 +7473,7 @@ Expression *DotIdExp::semanticX(Scope *sc)
             (*exps)[i] = e;
         }
         // Don't evaluate te->e0 in runtime
-        Expression *e = new TupleExp(loc, /*te->e0*/NULL, exps);
+        Expression *e = new TupleExp(loc, NULL, exps);
         e = e->semantic(sc);
         return e;
     }
@@ -7796,7 +7782,7 @@ Expression *DotVarExp::semantic(Scope *sc)
             Expressions *exps = new Expressions;
             Expression *e0 = NULL;
             Expression *ev = e1;
-            if (sc->func && e1->hasSideEffect())
+            if (sc->func && hasSideEffect(e1))
             {
                 Identifier *id = Lexer::uniqueId("__tup");
                 ExpInitializer *ei = new ExpInitializer(e1->loc, e1);
@@ -8953,11 +8939,14 @@ Lagain:
                 continue;
             FuncDeclaration *f2 = resolveFuncCall(loc, sc, s, tiargs, tthis, arguments, 1);
             if (f2)
-            {   if (f)
+            {
+                if (f)
+                {
                     /* Error if match in more than one overload set,
                      * even if one is a 'better' match than the other.
                      */
                     ScopeDsymbol::multiplyDefined(loc, f, f2);
+                }
                 else
                     f = f2;
             }
@@ -9058,7 +9047,7 @@ Lagain:
             //printf("tf = %s, args = %s\n", tf->deco, (*arguments)[0]->type->deco);
             ::error(loc, "%s %s %s is not callable using argument types %s",
                 p, e1->toChars(), Parameter::argsTypesToChars(tf->parameters, tf->varargs),
-                buf.toChars());
+                buf.peekString());
 
             return new ErrorExp();
         }
@@ -9123,7 +9112,7 @@ Lagain:
                 //printf("tf = %s, args = %s\n", tf->deco, (*arguments)[0]->type->deco);
                 ::error(loc, "%s %s is not callable using argument types %s",
                     e1->toChars(), Parameter::argsTypesToChars(tf->parameters, tf->varargs),
-                    buf.toChars());
+                    buf.peekString());
 
                 return new ErrorExp();
             }
@@ -9265,12 +9254,14 @@ Expression *CallExp::addDtorHook(Scope *sc)
 void CallExp::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     if (e1->op == TOKtype)
+    {
         /* Avoid parens around type to prevent forbidden cast syntax:
          *   (sometype)(arg1)
          * This is ok since types in constructor calls
          * can never depend on parens anyway
          */
         e1->toCBuffer(buf, hgs);
+    }
     else
         expToCBuffer(buf, hgs, e1, precedence[op]);
     buf->writeByte('(');
@@ -10891,7 +10882,7 @@ Expression *IndexExp::semantic(Scope *sc)
             e2 = e2->optimize(WANTvalue);
             dinteger_t length = el->toInteger();
             if (length)
-                skipboundscheck = IntRange(SignExtendedNumber(0), SignExtendedNumber(length)).contains(e2->getIntRange());
+                skipboundscheck = IntRange(SignExtendedNumber(0), SignExtendedNumber(length)).contains(getIntRange(e2));
         }
     }
 
@@ -11506,7 +11497,7 @@ Ltupleassign:
                 Expression *ea = ie->e1;
                 Expression *ek = ie->e2;
                 Expression *ev = e2;
-                if (ea->hasSideEffect())
+                if (hasSideEffect(ea))
                 {
                     VarDeclaration *v = new VarDeclaration(loc, ie->e1->type,
                         Lexer::uniqueId("__aatmp"), new ExpInitializer(loc, ie->e1));
@@ -11517,7 +11508,7 @@ Ltupleassign:
                     e0 = combine(e0, new DeclarationExp(loc, v));
                     ea = new VarExp(loc, v);
                 }
-                if (ek->hasSideEffect())
+                if (hasSideEffect(ek))
                 {
                     VarDeclaration *v = new VarDeclaration(loc, ie->e2->type,
                         Lexer::uniqueId("__aakey"), new ExpInitializer(loc, ie->e2));
@@ -11528,7 +11519,7 @@ Ltupleassign:
                     e0 = combine(e0, new DeclarationExp(loc, v));
                     ek = new VarExp(loc, v);
                 }
-                if (ev->hasSideEffect())
+                if (hasSideEffect(ev))
                 {
                     VarDeclaration *v = new VarDeclaration(loc, e2->type,
                         Lexer::uniqueId("__aaval"), new ExpInitializer(loc, e2));
@@ -11919,7 +11910,7 @@ Ltupleassign:
          e2->op == TOKtilde || e2->op == TOKneg))
     {
         type = e1->type;
-        return arrayOp(sc);
+        return arrayOp(this, sc);
     }
 
     if (e1->op == TOKvar &&
@@ -12148,7 +12139,7 @@ Expression *PowAssignExp::semantic(Scope *sc)
              (tb2->isintegral() || tb2->isfloating()))
         {
             type = e1->type;
-            return arrayOp(sc);
+            return arrayOp(this, sc);
         }
     }
     else
@@ -13499,7 +13490,7 @@ Expression *EqualExp::semantic(Scope *sc)
             VarExp *ve1 = (VarExp *)ae1->e1;
             VarExp *ve2 = (VarExp *)ae2->e1;
 
-            if (ve1->var == ve2->var /*|| ve1->var->toSymbol() == ve2->var->toSymbol()*/)
+            if (ve1->var == ve2->var)
             {
                 // They are the same, result is 'true' for ==, 'false' for !=
                 e = new IntegerExp(loc, (op == TOKequal), Type::tboolean);
@@ -13976,8 +13967,7 @@ Expression *PrettyFuncInitExp::resolveLoc(Loc loc, Scope *sc)
         HdrGenState hgs;
         OutBuffer buf;
         functionToCBuffer2((TypeFunction *)fd->type, &buf, &hgs, 0, funcStr);
-        buf.writebyte(0);
-        s = (const char *)buf.extractData();
+        s = buf.extractString();
     }
     else
     {
@@ -13993,7 +13983,7 @@ Expression *PrettyFuncInitExp::resolveLoc(Loc loc, Scope *sc)
 Expression *extractOpDollarSideEffect(Scope *sc, UnaExp *ue)
 {
     Expression *e0 = NULL;
-    if (ue->e1->hasSideEffect())
+    if (hasSideEffect(ue->e1))
     {
         /* Even if opDollar is needed, 'ue->e1' should be evaluate only once. So
          * Rewrite:
@@ -14124,7 +14114,7 @@ Expression *BinExp::reorderSettingAAElem(Scope *sc)
      *     __aatmp[__aakey] op= __aaval;  // assignment
      */
     Expression *ec = NULL;
-    if (ie->e1->hasSideEffect())
+    if (hasSideEffect(ie->e1))
     {
         Identifier *id = Lexer::uniqueId("__aatmp");
         VarDeclaration *vd = new VarDeclaration(ie->e1->loc, ie->e1->type, id, new ExpInitializer(ie->e1->loc, ie->e1));
@@ -14135,7 +14125,7 @@ Expression *BinExp::reorderSettingAAElem(Scope *sc)
         ec = de;
         ie->e1 = new VarExp(ie->e1->loc, vd);
     }
-    if (ie->e2->hasSideEffect())
+    if (hasSideEffect(ie->e2))
     {
         Identifier *id = Lexer::uniqueId("__aakey");
         VarDeclaration *vd = new VarDeclaration(ie->e2->loc, ie->e2->type, id, new ExpInitializer(ie->e2->loc, ie->e2));

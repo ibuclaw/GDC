@@ -123,9 +123,7 @@ Loc::toChars (void)
   if (this->linnum)
     buf.printf (":%u", this->linnum);
 
-  buf.writeByte (0);
-
-  return (char *)buf.extractData();
+  return buf.extractString();
 }
 
 Loc::Loc (Module *mod, unsigned linnum)
@@ -313,10 +311,10 @@ escapePath (OutBuffer *buf, const char *fname)
 	case '(':
 	case ')':
 	case '\\':
-	  buf->writebyte('\\');
+	  buf->writeByte('\\');
 
 	default:
-	  buf->writebyte(*fname);
+	  buf->writeByte(*fname);
 	  break;
 	}
       fname++;

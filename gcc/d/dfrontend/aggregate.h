@@ -96,7 +96,6 @@ public:
     void setScope(Scope *sc);
     void semantic2(Scope *sc);
     void semantic3(Scope *sc);
-    void inlineScan();
     unsigned size(Loc loc);
     static void alignmember(structalign_t salign, unsigned size, unsigned *poffset);
     static unsigned placeField(unsigned *nextoffset,
@@ -221,8 +220,9 @@ struct BaseClass
                                         // making up the vtbl[]
 
     size_t baseInterfaces_dim;
-    BaseClass *baseInterfaces;          // if BaseClass is an interface, these
-                                        // are a copy of the InterfaceDeclaration::interfaces
+    // if BaseClass is an interface, these
+    // are a copy of the InterfaceDeclaration::interfaces
+    BaseClass *baseInterfaces;
 
     BaseClass();
     BaseClass(Type *type, PROT protection);

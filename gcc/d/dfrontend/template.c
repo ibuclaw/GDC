@@ -1383,7 +1383,7 @@ MATCH TemplateDeclaration::deduceFunctionTemplateMatch(
 
                     if (tid->mod & MODwild)
                     {
-                        unsigned wm = farg->type->deduceWildHelper(&tt, tid);
+                        unsigned char wm = farg->type->deduceWildHelper(&tt, tid);
                         if (wm)
                         {
                             wildmatch |= wm;
@@ -2662,7 +2662,7 @@ void TemplateDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     {
         hgs->tpltMember++;
         buf->writenl();
-        buf->writebyte('{');
+        buf->writeByte('{');
         buf->writenl();
         buf->level++;
         for (size_t i = 0; i < members->dim; i++)
@@ -2671,7 +2671,7 @@ void TemplateDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
             s->toCBuffer(buf, hgs);
         }
         buf->level--;
-        buf->writebyte('}');
+        buf->writeByte('}');
         buf->writenl();
         hgs->tpltMember--;
     }
@@ -2715,8 +2715,7 @@ char *TemplateDeclaration::toChars()
         constraint->toCBuffer(&buf, &hgs);
         buf.writeByte(')');
     }
-    buf.writeByte(0);
-    return (char *)buf.extractData();
+    return buf.extractString();
 }
 
 PROT TemplateDeclaration::prot()
@@ -2874,7 +2873,7 @@ size_t templateParameterLookup(Type *tparam, TemplateParameters *parameters)
     return IDX_NOTFOUND;
 }
 
-unsigned Type::deduceWildHelper(Type **at, Type *tparam)
+unsigned char Type::deduceWildHelper(Type **at, Type *tparam)
 {
     assert(tparam->mod & MODwild);
     *at = NULL;
@@ -2899,10 +2898,10 @@ unsigned Type::deduceWildHelper(Type **at, Type *tparam)
         case X(MODshared | MODwildconst,    MODshared | MODconst):
         case X(MODshared | MODwildconst,    MODimmutable):
         {
-            unsigned wm = (mod & ~MODshared);
+            unsigned char wm = (mod & ~MODshared);
             if (wm == 0)
                 wm = MODmutable;
-            unsigned m = (mod & (MODconst | MODimmutable)) | (tparam->mod & mod & MODshared);
+            unsigned char m = (mod & (MODconst | MODimmutable)) | (tparam->mod & mod & MODshared);
             *at = unqualify(m);
             return wm;
         }
@@ -3265,7 +3264,7 @@ MATCH Type::deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters,
 
         if (wm && (tparam->mod & MODwild))
         {
-            unsigned wx = deduceWildHelper(&tt, tparam);
+            unsigned char wx = deduceWildHelper(&tt, tparam);
             if (wx)
             {
                 if (!at)
@@ -3696,8 +3695,10 @@ MATCH TypeInstance::deduceType(Scope *sc,
             if (i < tempinst->tiargs->dim)
                 o1 = (*tempinst->tiargs)[i];
             else if (i < tempinst->tdtypes.dim && i < tp->tempinst->tiargs->dim)
+            {
                 // Pick up default arg
                 o1 = tempinst->tdtypes[i];
+            }
             else if (i >= tp->tempinst->tiargs->dim)
                 break;
 
@@ -5010,8 +5011,10 @@ MATCH TemplateTupleParameter::matchArg(Loc loc, Scope *sc, Objects *tiargs,
     Tuple *ovar;
 
     if ((*dedtypes)[i] && isTuple((*dedtypes)[i]))
-        // It was already been deduced
+    {
+        // It has already been deduced
         ovar = isTuple((*dedtypes)[i]);
+    }
     else if (i + 1 == tiargs->dim && isTuple((*tiargs)[i]))
         ovar = isTuple((*tiargs)[i]);
     else
@@ -6790,8 +6793,7 @@ Identifier *TemplateInstance::genIdent(Objects *args)
             assert(0);
     }
     buf.writeByte('Z');
-    id = buf.toChars();
-    //buf.data = NULL;                          // we can free the string after call to idPool()
+    id = buf.peekString();
     //printf("\tgenIdent = %s\n", id);
     return Lexer::idPool(id);
 }
@@ -6980,21 +6982,6 @@ void TemplateInstance::printInstantiationTrace()
     }
 }
 
-void TemplateInstance::inlineScan()
-{
-#if LOG
-    printf("TemplateInstance::inlineScan('%s')\n", toChars());
-#endif
-    if (!errors && members)
-    {
-        for (size_t i = 0; i < members->dim; i++)
-        {
-            Dsymbol *s = (*members)[i];
-            s->inlineScan();
-        }
-    }
-}
-
 void TemplateInstance::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     Identifier *id = name;
@@ -7114,8 +7101,7 @@ char *TemplateInstance::toChars()
     char *s;
 
     toCBuffer(&buf, &hgs);
-    s = buf.toChars();
-    buf.data = NULL;
+    s = buf.extractString();
     return s;
 }
 
@@ -7622,11 +7608,6 @@ void TemplateMixin::semantic3(Scope *sc)
     }
 }
 
-void TemplateMixin::inlineScan()
-{
-    TemplateInstance::inlineScan();
-}
-
 const char *TemplateMixin::kind()
 {
     return "mixin";
@@ -7694,8 +7675,7 @@ char *TemplateMixin::toChars()
     char *s;
 
     TemplateInstance::toCBuffer(&buf, &hgs);
-    s = buf.toChars();
-    buf.data = NULL;
+    s = buf.extractString();
     return s;
 }
 
@@ -7708,10 +7688,10 @@ void TemplateMixin::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
     if (ident && memcmp(ident->string, "__mixin", 7) != 0)
     {
-        buf->writebyte(' ');
+        buf->writeByte(' ');
         buf->writestring(ident->toChars());
     }
-    buf->writebyte(';');
+    buf->writeByte(';');
     buf->writenl();
 }
 

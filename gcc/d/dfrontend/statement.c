@@ -31,6 +31,8 @@
 #include "attrib.h"
 #include "import.h"
 
+bool walkPostorder(Statement *s, StoppableVisitor *v);
+
 Identifier *fixupLabelName(Scope *sc, Identifier *ident)
 {
     unsigned flags = (sc->flags & SCOPEcontract);
@@ -44,9 +46,8 @@ Identifier *fixupLabelName(Scope *sc, Identifier *ident)
         const char *prefix = flags == SCOPErequire ? "__in_" : "__out_";
         OutBuffer buf;
         buf.printf("%s%s", prefix, ident->toChars());
-        buf.writeByte(0);
 
-        const char *name = (const char *)buf.extractData();
+        const char *name = buf.extractString();
         ident = Lexer::idPool(name);
     }
     return ident;
@@ -88,8 +89,7 @@ char *Statement::toChars()
 
     OutBuffer buf;
     toCBuffer(&buf, &hgs);
-    buf.writebyte(0);
-    return buf.extractData();
+    return buf.extractString();
 }
 
 void Statement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
@@ -170,70 +170,60 @@ bool Statement::hasContinue()
 
 bool Statement::usesEH()
 {
-    struct UsesEH
+    class UsesEH : public StoppableVisitor
     {
-        static bool lambdaUsesEH(Statement *s, void *param)
-        {
-            return s->usesEHimpl();
-        }
+    public:
+        void visit(Statement *s)             {}
+        void visit(TryCatchStatement *s)     { stop = true; }
+        void visit(TryFinallyStatement *s)   { stop = true; }
+        void visit(OnScopeStatement *s)      { stop = true; }
+        void visit(SynchronizedStatement *s) { stop = true; }
     };
 
     UsesEH ueh;
-    return apply(&UsesEH::lambdaUsesEH, &ueh);
+    return walkPostorder(this, &ueh);
 }
-
-bool Statement::usesEHimpl()             { return false; }
-bool TryCatchStatement::usesEHimpl()     { return true; }
-bool TryFinallyStatement::usesEHimpl()   { return true; }
-bool OnScopeStatement::usesEHimpl()      { return true; }
-bool SynchronizedStatement::usesEHimpl() { return true; }
 
 /* ============================================== */
 // true if statement 'comes from' somewhere else, like a goto
 
 bool Statement::comeFrom()
 {
-    struct ComeFrom
+    class ComeFrom : public StoppableVisitor
     {
-        static bool lambdaComeFrom(Statement *s, void *param)
-        {
-            return s->comeFromImpl();
-        }
+    public:
+        void visit(Statement *s)        {}
+        void visit(CaseStatement *s)    { stop = true; }
+        void visit(DefaultStatement *s) { stop = true; }
+        void visit(LabelStatement *s)   { stop = true; }
+        void visit(AsmStatement *s)     { stop = true; }
+#ifdef IN_GCC
+        void visit(ExtAsmStatement *s)  { stop = true; }
+#endif
     };
 
     ComeFrom cf;
-    return apply(&ComeFrom::lambdaComeFrom, &cf);
+    return walkPostorder(this, &cf);
 }
-
-bool Statement::comeFromImpl()        { return false; }
-bool CaseStatement::comeFromImpl()    { return true; }
-bool DefaultStatement::comeFromImpl() { return true; }
-bool LabelStatement::comeFromImpl()   { return true; }
-bool AsmStatement::comeFromImpl()     { return true; }
 
 /* ============================================== */
 // Return true if statement has executable code.
 
 bool Statement::hasCode()
 {
-    struct HasCode
+    class HasCode : public StoppableVisitor
     {
-        static bool lambdaHasCode(Statement *s, void *param)
-        {
-            return s->hasCodeImpl();
-        }
+    public:
+        void visit(Statement *s)         { stop = true; }
+        void visit(ExpStatement *s)      { stop = s->exp != NULL; }
+        void visit(CompoundStatement *s) {}
+        void visit(ScopeStatement *s)    {}
+        void visit(ImportStatement *s)   {}
     };
 
     HasCode hc;
-    return apply(&HasCode::lambdaHasCode, &hc);
+    return walkPostorder(this, &hc);
 }
-
-bool Statement::hasCodeImpl()         { return true; }
-bool ExpStatement::hasCodeImpl()      { return exp != NULL; }
-bool CompoundStatement::hasCodeImpl() { return false; }
-bool ScopeStatement::hasCodeImpl()    { return false; }
-bool ImportStatement::hasCodeImpl()   { return false; }
-
 
 /* ============================================== */
 
@@ -521,7 +511,7 @@ Statements *CompileStatement::flatten(Scope *sc)
     Statements *a = new Statements();
     if (exp->op != TOKerror)
     {
-        StringExp *se = exp->toString();
+        StringExp *se = exp->toStringExp();
         if (!se)
            error("argument to mixin must be a string, not (%s)", exp->toChars());
         else
@@ -1176,7 +1166,7 @@ void WhileStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("while (");
     condition->toCBuffer(buf, hgs);
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
     if (body)
         body->toCBuffer(buf, hgs);
@@ -1418,24 +1408,24 @@ void ForStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
         hgs->FLinit.init--;
     }
     else
-        buf->writebyte(';');
+        buf->writeByte(';');
     if (condition)
-    {   buf->writebyte(' ');
+    {   buf->writeByte(' ');
         condition->toCBuffer(buf, hgs);
     }
-    buf->writebyte(';');
+    buf->writeByte(';');
     if (increment)
-    {   buf->writebyte(' ');
+    {   buf->writeByte(' ');
         increment->toCBuffer(buf, hgs);
     }
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     body->toCBuffer(buf, hgs);
     buf->level--;
-    buf->writebyte('}');
+    buf->writeByte('}');
     buf->writenl();
 }
 
@@ -1733,7 +1723,7 @@ Lagain:
                         }
                     }
                     TypeSArray *ta = tab->ty == Tsarray ? (TypeSArray *)tab : NULL;
-                    if (ta && !IntRange::fromType(var->type).contains(ta->dim->getIntRange()))
+                    if (ta && !IntRange::fromType(var->type).contains(getIntRange(ta->dim)))
                     {
                         error("index type '%s' cannot cover index range 0..%llu", arg->type->toChars(), ta->dim->toInteger());
                     }
@@ -1808,11 +1798,15 @@ Lagain:
 
             Expression *cond;
             if (op == TOKforeach_reverse)
+            {
                 // key--
                 cond = new PostExp(TOKminusminus, loc, new VarExp(loc, key));
+            }
             else
+            {
                 // key < tmp.length
                 cond = new CmpExp(TOKlt, loc, new VarExp(loc, key), tmp_length);
+            }
 
             Expression *increment = NULL;
             if (op == TOKforeach)
@@ -2008,7 +2002,7 @@ Lagain:
                 #endif
                     if (!arg->type)
                         arg->type = exp->type;
-                    arg->type = arg->type->addStorageClass(arg->storageClass);
+                    arg->type = arg->type->addStorageClass(arg->storageClass)->semantic(loc, sc);
                     if (!exp->implicitConvTo(arg->type))
                         goto Lrangeerr;
 
@@ -2264,8 +2258,10 @@ Lagain:
                 exps->push(flde);
                 if (aggr->op == TOKdelegate &&
                     ((DelegateExp *)aggr)->func->isNested())
+                {
                     // See Bugzilla 3560
                     e = new CallExp(loc, ((DelegateExp *)aggr)->e1, exps);
+                }
                 else
                     e = new CallExp(loc, aggr, exps);
                 e = e->semantic(sc);
@@ -2293,8 +2289,10 @@ Lagain:
             }
 
             if (!cases->dim)
+            {
                 // Easy case, a clean exit from the loop
                 s = new ExpStatement(loc, e);
+            }
             else
             {   // Construct a switch statement around the return value
                 // of the apply function.
@@ -2390,15 +2388,15 @@ void ForeachStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     }
     buf->writestring("; ");
     aggr->toCBuffer(buf, hgs);
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     if (body)
         body->toCBuffer(buf, hgs);
     buf->level--;
-    buf->writebyte('}');
+    buf->writeByte('}');
     buf->writenl();
 }
 
@@ -2455,7 +2453,22 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
         arg->type = arg->type->semantic(loc, sc);
         arg->type = arg->type->addStorageClass(arg->storageClass);
         lwr = lwr->implicitCastTo(sc, arg->type);
-        upr = upr->implicitCastTo(sc, arg->type);
+
+        if (upr->implicitConvTo(arg->type) || (arg->storageClass & STCref))
+        {
+            upr = upr->implicitCastTo(sc, arg->type);
+        }
+        else
+        {
+            // See if upr-1 fits in arg->type
+            Expression *limit = new MinExp(loc, upr, new IntegerExp(1));
+            limit = limit->semantic(sc);
+            limit = limit->optimize(WANTvalue);
+            if (!limit->implicitConvTo(arg->type))
+            {
+                upr = upr->implicitCastTo(sc, arg->type);
+            }
+        }
     }
     else
     {
@@ -2484,6 +2497,10 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
         }
         arg->type = arg->type->addStorageClass(arg->storageClass);
     }
+    if (arg->type->ty == Terror ||
+       lwr->op == TOKerror ||
+       upr->op == TOKerror)
+       return new ErrorStatement();
 
     /* Convert to a for loop:
      *  foreach (key; lwr .. upr) =>
@@ -2492,14 +2509,13 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
      *  foreach_reverse (key; lwr .. upr) =>
      *  for (auto tmp = lwr, auto key = upr; key-- > tmp;)
      */
-
     ExpInitializer *ie = new ExpInitializer(loc, (op == TOKforeach) ? lwr : upr);
-    key = new VarDeclaration(loc, arg->type->mutableOf(), Lexer::uniqueId("__key"), ie);
+    key = new VarDeclaration(loc, upr->type->mutableOf(), Lexer::uniqueId("__key"), ie);
     key->storage_class |= STCtemp;
 
     Identifier *id = Lexer::uniqueId("__limit");
     ie = new ExpInitializer(loc, (op == TOKforeach) ? upr : lwr);
-    VarDeclaration *tmp = new VarDeclaration(loc, arg->type, id, ie);
+    VarDeclaration *tmp = new VarDeclaration(loc, upr->type, id, ie);
     tmp->storage_class |= STCtemp;
 
     Statements *cs = new Statements();
@@ -2521,20 +2537,28 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
     {
         cond = new PostExp(TOKminusminus, loc, new VarExp(loc, key));
         if (arg->type->isscalar())
+        {
             // key-- > tmp
             cond = new CmpExp(TOKgt, loc, cond, new VarExp(loc, tmp));
+        }
         else
+        {
             // key-- != tmp
             cond = new EqualExp(TOKnotequal, loc, cond, new VarExp(loc, tmp));
+        }
     }
     else
     {
         if (arg->type->isscalar())
+        {
             // key < tmp
             cond = new CmpExp(TOKlt, loc, new VarExp(loc, key), new VarExp(loc, tmp));
+        }
         else
+        {
             // key != tmp
             cond = new EqualExp(TOKnotequal, loc, new VarExp(loc, key), new VarExp(loc, tmp));
+        }
     }
 
     Expression *increment = NULL;
@@ -2550,7 +2574,7 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
     }
     else
     {
-        ie = new ExpInitializer(loc, new IdentifierExp(loc, key->ident));
+        ie = new ExpInitializer(loc, new CastExp(loc, new VarExp(loc, key), arg->type));
         VarDeclaration *v = new VarDeclaration(loc, arg->type, arg->ident, ie);
         v->storage_class |= STCtemp | STCforeach | (arg->storageClass & STCref);
         body = new CompoundStatement(loc, new ExpStatement(loc, v), body);
@@ -2602,15 +2626,15 @@ void ForeachRangeStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     lwr->toCBuffer(buf, hgs);
     buf->writestring(" .. ");
     upr->toCBuffer(buf, hgs);
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     if (body)
         body->toCBuffer(buf, hgs);
     buf->level--;
-    buf->writebyte('}');
+    buf->writeByte('}');
     buf->writenl();
 }
 
@@ -2764,7 +2788,7 @@ void IfStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
         buf->writestring(" = ");
     }
     condition->toCBuffer(buf, hgs);
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
     if (!ifbody->isScopeStatement())
         buf->level++;
@@ -2931,7 +2955,7 @@ Statement *PragmaStatement::semantic(Scope *sc)
                 {   errorSupplemental(loc, "while evaluating pragma(msg, %s)", (*args)[i]->toChars());
                     goto Lerror;
                 }
-                StringExp *se = e->toString();
+                StringExp *se = e->toStringExp();
                 if (se)
                 {
                     fprintf(stderr, "%.*s", (int)se->len, (char *)se->string);
@@ -2962,7 +2986,7 @@ Statement *PragmaStatement::semantic(Scope *sc)
 
             e = e->ctfeInterpret();
             (*args)[0] = e;
-            StringExp *se = e->toString();
+            StringExp *se = e->toStringExp();
             if (!se)
                 error("string expected for library name, not '%s'", e->toChars());
             else if (global.params.verbose)
@@ -3278,18 +3302,18 @@ void SwitchStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring(isFinal ? "final switch (" : "switch (");
     condition->toCBuffer(buf, hgs);
-    buf->writebyte(')');
+    buf->writeByte(')');
     buf->writenl();
     if (body)
     {
         if (!body->isScopeStatement())
         {
-            buf->writebyte('{');
+            buf->writeByte('{');
             buf->writenl();
             buf->level++;
             body->toCBuffer(buf, hgs);
             buf->level--;
-            buf->writebyte('}');
+            buf->writeByte('}');
             buf->writenl();
         }
         else
@@ -3408,7 +3432,7 @@ void CaseStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("case ");
     exp->toCBuffer(buf, hgs);
-    buf->writebyte(':');
+    buf->writeByte(':');
     buf->writenl();
     statement->toCBuffer(buf, hgs);
 }
@@ -3510,7 +3534,7 @@ void CaseRangeStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     first->toCBuffer(buf, hgs);
     buf->writestring(": .. case ");
     last->toCBuffer(buf, hgs);
-    buf->writebyte(':');
+    buf->writeByte(':');
     buf->writenl();
     statement->toCBuffer(buf, hgs);
 }
@@ -3648,10 +3672,10 @@ void GotoCaseStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("goto case");
     if (exp)
-    {   buf->writebyte(' ');
+    {   buf->writeByte(' ');
         exp->toCBuffer(buf, hgs);
     }
-    buf->writebyte(';');
+    buf->writeByte(';');
     buf->writenl();
 }
 
@@ -3788,8 +3812,10 @@ Statement *ReturnStatement::semantic(Scope *sc)
             VarDeclaration *v = ve->var->isVarDeclaration();
 
             if (tf->isref)
+            {
                 // Function returns a reference
                 fd->nrvo_can = 0;
+            }
             else if (!v || v->isOut() || v->isRef())
                 fd->nrvo_can = 0;
             else if (fd->nrvo_var == NULL)
@@ -3966,7 +3992,6 @@ Statement *ReturnStatement::semantic(Scope *sc)
         }
         else
         {
-            //exp->dump(0);
             //exp->print();
             exp->checkEscape();
         }
@@ -4148,10 +4173,10 @@ void BreakStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("break");
     if (ident)
-    {   buf->writebyte(' ');
+    {   buf->writeByte(' ');
         buf->writestring(ident->toChars());
     }
-    buf->writebyte(';');
+    buf->writeByte(';');
     buf->writenl();
 }
 
@@ -4251,10 +4276,10 @@ void ContinueStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("continue");
     if (ident)
-    {   buf->writebyte(' ');
+    {   buf->writeByte(' ');
         buf->writestring(ident->toChars());
     }
-    buf->writebyte(';');
+    buf->writeByte(';');
     buf->writenl();
 }
 
@@ -4420,13 +4445,13 @@ void SynchronizedStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("synchronized");
     if (exp)
-    {   buf->writebyte('(');
+    {   buf->writeByte('(');
         exp->toCBuffer(buf, hgs);
-        buf->writebyte(')');
+        buf->writeByte(')');
     }
     if (body)
     {
-        buf->writebyte(' ');
+        buf->writeByte(' ');
         body->toCBuffer(buf, hgs);
     }
 }
@@ -4584,7 +4609,7 @@ Statement *TryCatchStatement::syntaxCopy()
 
 Statement *TryCatchStatement::semantic(Scope *sc)
 {
-    body = body->semanticScope(sc, NULL /*this*/, NULL);
+    body = body->semanticScope(sc, NULL, NULL);
     assert(body);
 
     /* Even if body is empty, still do semantic analysis on catches
@@ -4740,7 +4765,13 @@ void Catch::semantic(Scope *sc)
     sc = sc->push(sym);
 
     if (!type)
-        type = new TypeIdentifier(Loc(), Id::Throwable);
+    {
+        // reference .object.Throwable
+        TypeIdentifier *tid = new TypeIdentifier(Loc(), Id::empty);
+        tid->addIdent(Id::object);
+        tid->addIdent(Id::Throwable);
+        type = tid;
+    }
     type = type->semantic(loc, sc);
     ClassDeclaration *cd = type->toBasetype()->isClassHandle();
     if (!cd || ((cd != ClassDeclaration::throwable) && !ClassDeclaration::throwable->isBaseOf(cd, NULL)))
@@ -4780,18 +4811,18 @@ void Catch::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("catch");
     if (type)
-    {   buf->writebyte('(');
+    {   buf->writeByte('(');
         type->toCBuffer(buf, ident, hgs);
-        buf->writebyte(')');
+        buf->writeByte(')');
     }
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     if (handler)
         handler->toCBuffer(buf, hgs);
     buf->level--;
-    buf->writebyte('}');
+    buf->writeByte('}');
     buf->writenl();
 }
 
@@ -4841,16 +4872,16 @@ void TryFinallyStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("try");
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     body->toCBuffer(buf, hgs);
     buf->level--;
-    buf->writebyte('}');
+    buf->writeByte('}');
     buf->writenl();
     buf->writestring("finally");
     buf->writenl();
-    buf->writebyte('{');
+    buf->writeByte('{');
     buf->writenl();
     buf->level++;
     finalbody->toCBuffer(buf, hgs);
@@ -4916,7 +4947,7 @@ int OnScopeStatement::blockExit(bool mustNotThrow)
 void OnScopeStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring(Token::toChars(tok));
-    buf->writebyte(' ');
+    buf->writeByte(' ');
     statement->toCBuffer(buf, hgs);
 }
 
@@ -5189,7 +5220,7 @@ void GotoStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring("goto ");
     buf->writestring(ident->toChars());
-    buf->writebyte(';');
+    buf->writeByte(';');
     buf->writenl();
 }
 
@@ -5280,7 +5311,7 @@ int LabelStatement::blockExit(bool mustNotThrow)
 void LabelStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
     buf->writestring(ident->toChars());
-    buf->writebyte(':');
+    buf->writeByte(':');
     buf->writenl();
     if (statement)
         statement->toCBuffer(buf, hgs);
@@ -5354,7 +5385,7 @@ void AsmStatement::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
            t->value != TOKdot               &&
            t->next->value != TOKdot)
         {
-            buf->writebyte(' ');
+            buf->writeByte(' ');
         }
         t = t->next;
     }

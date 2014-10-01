@@ -756,7 +756,6 @@ Dsymbol *VarDeclaration::syntaxCopy(Dsymbol *s)
         if (this->init)
         {   init = this->init->syntaxCopy();
             //init->isExpInitializer()->exp->print();
-            //init->isExpInitializer()->exp->dump(0);
         }
 
         sv = new VarDeclaration(loc, type ? type->syntaxCopy() : NULL, ident, init);
@@ -1071,8 +1070,7 @@ Lnomatch:
 
             OutBuffer buf;
             buf.printf("_%s_field_%llu", ident->toChars(), (ulonglong)i);
-            buf.writeByte(0);
-            const char *name = (const char *)buf.extractData();
+            const char *name = buf.extractString();
             Identifier *id = Lexer::idPool(name);
 
             Initializer *ti;
@@ -1252,9 +1250,11 @@ Lnomatch:
         if (!init)
         {
             if (isField())
+            {
                 /* For fields, we'll check the constructor later to make sure it is initialized
                  */
                 storage_class |= STCnodefaultctor;
+            }
             else if (storage_class & STCparameter)
                 ;
             else
@@ -1561,7 +1561,7 @@ void VarDeclaration::semantic2(Scope *sc)
         ExpInitializer *ei = init->isExpInitializer();
         if (ei)
         {
-            ei->exp->dump(0);
+            ei->exp->print();
             printf("type = %p\n", ei->exp->type);
         }
 #endif
@@ -2179,8 +2179,7 @@ char *TypeInfoDeclaration::toChars()
     buf.writestring("typeid(");
     buf.writestring(tinfo->toChars());
     buf.writeByte(')');
-    buf.writeByte(0);
-    return buf.extractData();
+    return buf.extractString();
 }
 
 /***************************** TypeInfoConstDeclaration **********************/

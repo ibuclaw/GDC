@@ -382,15 +382,6 @@ void Dsymbol::semantic3(Scope *sc)
     // Most Dsymbols have no further semantic analysis needed
 }
 
-/*************************************
- * Look for function inlining possibilities.
- */
-
-void Dsymbol::inlineScan()
-{
-    // Most Dsymbols aren't functions
-}
-
 /*********************************************
  * Search for ident as member of s.
  * Input:
@@ -749,10 +740,12 @@ Module *Dsymbol::getAccessModule()
             return m;
         TemplateInstance *ti = s->isTemplateInstance();
         if (ti && ti->enclosing)
+        {
             /* Because of local template instantiation, the parent isn't where the access
              * rights come from - it's the template declaration
              */
             s = ti->tempdecl;
+        }
         else
             s = s->parent;
     }

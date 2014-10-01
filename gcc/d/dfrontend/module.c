@@ -816,27 +816,6 @@ void Module::semantic3()
     semanticRun = PASSsemantic3done;
 }
 
-void Module::inlineScan()
-{
-    if (semanticRun != PASSsemantic3done)
-        return;
-    semanticRun = PASSinline;
-
-    // Note that modules get their own scope, from scratch.
-    // This is so regardless of where in the syntax a module
-    // gets imported, it is unaffected by context.
-    //printf("Module = %p\n", sc.scopesym);
-
-    for (size_t i = 0; i < members->dim; i++)
-    {
-        Dsymbol *s = (*members)[i];
-        //if (global.params.verbose)
-        //    fprintf(global.stdmsg, "inline scan symbol %s\n", s->toChars());
-        s->inlineScan();
-    }
-    semanticRun = PASSinlinedone;
-}
-
 /****************************************************
  */
 
@@ -1080,8 +1059,7 @@ char *ModuleDeclaration::toChars()
         }
     }
     buf.writestring(id->toChars());
-    buf.writeByte(0);
-    return (char *)buf.extractData();
+    return buf.extractString();
 }
 
 /* =========================== Package ===================== */

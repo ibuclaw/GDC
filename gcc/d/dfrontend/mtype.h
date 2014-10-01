@@ -233,7 +233,8 @@ public:
     Type *copy();
     virtual Type *syntaxCopy();
     bool equals(RootObject *o);
-    int dyncast() { return DYNCAST_TYPE; } // kludge for template.isType()
+    // kludge for template.isType()
+    int dyncast() { return DYNCAST_TYPE; }
     int covariant(Type *t, StorageClass *pstc = NULL);
     char *toChars();
     static char needThisPrefix();
@@ -311,7 +312,7 @@ public:
     virtual int isBaseOf(Type *t, int *poffset);
     virtual MATCH implicitConvTo(Type *to);
     virtual MATCH constConv(Type *to);
-    virtual unsigned deduceWild(Type *t, bool isRef);
+    virtual unsigned char deduceWild(Type *t, bool isRef);
     virtual Type *substWildTo(unsigned mod);
 
     Type *unqualify(unsigned m);
@@ -346,7 +347,7 @@ public:
     virtual int needsDestruction();
     virtual bool needsNested();
 
-    unsigned deduceWildHelper(Type **at, Type *tparam);
+    unsigned char deduceWildHelper(Type **at, Type *tparam);
     MATCH deduceTypeHelper(Type **at, Type *tparam);
 
     static void error(Loc loc, const char *format, ...);
@@ -401,7 +402,7 @@ public:
     Type *makeSharedWildConst();
     Type *makeMutable();
     MATCH constConv(Type *to);
-    unsigned deduceWild(Type *t, bool isRef);
+    unsigned char deduceWild(Type *t, bool isRef);
     void transitive();
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -727,8 +728,9 @@ class TypeQualified : public Type
 {
 public:
     Loc loc;
-    Objects idents;         // array of Identifier and TypeInstance,
-                            // representing ident.ident!tiargs.ident. ... etc.
+    // array of Identifier and TypeInstance,
+    // representing ident.ident!tiargs.ident. ... etc.
+    Objects idents;
 
     TypeQualified(TY ty, Loc loc);
     void syntaxCopyHelper(TypeQualified *t);
@@ -859,7 +861,7 @@ public:
     TypeTuple *toArgTypes();
     MATCH implicitConvTo(Type *to);
     MATCH constConv(Type *to);
-    unsigned deduceWild(Type *t, bool isRef);
+    unsigned char deduceWild(Type *t, bool isRef);
     Type *toHeadMutable();
 
     type *toCtype();
@@ -978,7 +980,7 @@ public:
     int isBaseOf(Type *t, int *poffset);
     MATCH implicitConvTo(Type *to);
     MATCH constConv(Type *to);
-    unsigned deduceWild(Type *t, bool isRef);
+    unsigned char deduceWild(Type *t, bool isRef);
     Type *toHeadMutable();
     Expression *defaultInit(Loc loc);
     int isZeroInit(Loc loc);
@@ -1071,7 +1073,8 @@ public:
     Parameter *syntaxCopy();
     Type *isLazyArray();
     void toDecoBuffer(OutBuffer *buf);
-    int dyncast() { return DYNCAST_PARAMETER; } // kludge for template.isType()
+    // kludge for template.isType()
+    int dyncast() { return DYNCAST_PARAMETER; }
     static Parameters *arraySyntaxCopy(Parameters *args);
     static char *argsTypesToChars(Parameters *args, int varargs);
     static void argsToCBuffer(OutBuffer *buf, HdrGenState *hgs, Parameters *arguments, int varargs);

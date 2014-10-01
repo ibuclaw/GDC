@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "object.h"
 #ifdef IN_GCC
 // rmem uses functions poisoned by GCC.
 void *mem_malloc(size_t size);
@@ -27,7 +28,6 @@ void mem_free(void *p);
 #else
 #include "rmem.h"
 #endif
-#include "object.h"
 
 template <typename TYPE>
 struct Array
@@ -275,21 +275,6 @@ struct Array
         a->setDim(dim);
         memcpy(a->data, data, dim * sizeof(*data));
         return a;
-    }
-
-    typedef int (*Array_apply_ft_t)(TYPE, void *);
-    int apply(Array_apply_ft_t fp, void *param)
-    {
-        for (size_t i = 0; i < dim; i++)
-        {   TYPE e = (*this)[i];
-
-            if (e)
-            {
-                if (e->apply(fp, param))
-                    return 1;
-            }
-        }
-        return 0;
     }
 };
 

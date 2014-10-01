@@ -875,6 +875,17 @@ TemplateInstance::toObjFile (int)
   if (isError (this)|| !members)
     return;
 
+  // Prevent codegen if enclosing is an artificially instantiated function.
+  FuncDeclaration *fd = this->enclosing ? this->enclosing->isFuncDeclaration() : NULL;
+  if (fd && fd->fbody == NULL)
+    return;
+
+  // Template lambdas that instantiated in template constraint cannot appear in runnable code.
+  TemplateDeclaration *tempdecl = this->tempdecl->isTemplateDeclaration();
+  gcc_assert(tempdecl != NULL);
+  if (tempdecl->literal && tempdecl->ident == Id::empty)
+    return;
+
   for (size_t i = 0; i < members->dim; i++)
     {
       Dsymbol *s = (*members)[i];
@@ -1027,6 +1038,18 @@ Module::genmoduleinfo()
   build_moduleinfo (msym);
 }
 
+// For nested functions in particular, unnest DECL in the cgraph,
+// as all static chain passing is handled by the front-end.
+
+static void
+unnest_function(tree decl)
+{
+  struct cgraph_node *node = cgraph_node::get_create(decl);
+
+  if (node->origin)
+    node->unnest();
+}
+
 // Returns true if we want to compile the declaration DSYM.
 
 static bool
@@ -1073,21 +1096,19 @@ output_declaration_p (Dsymbol *dsym)
 	      gcc_assert (global.errors);
 	      return false;
 	    }
-	}
 
-      // Nested functions may not have its toObjFile called before the outer
-      // function is finished.  GCC requires that nested functions be finished
-      // first so we need to arrange for toObjFile to be called earlier.
-      // If the parent never gets emitted, then neither will fd.
-      Dsymbol *outer = fd->toParent2();
-      if (outer && outer->isFuncDeclaration())
-	{
-	  FuncDeclaration *fouter = (FuncDeclaration *) outer;
-
-	  if (fouter->semanticRun < PASSobj)
+	  FuncDeclaration *fdp = fd->toParent2()->isFuncDeclaration();
+	  if (fdp && fdp->semanticRun < PASSobj)
 	    {
-	      fouter->deferred.push (fd);
-	      return false;
+	      // Parent failed to compile, but errors were gagged.
+	      if (fdp->semantic3Errors)
+		return false;
+
+	      if (fdp->isUnitTestDeclaration())
+		{
+		  fdp->deferred.push(fd);
+		  return false;
+		}
 	    }
 	}
 
@@ -1107,35 +1128,42 @@ output_declaration_p (Dsymbol *dsym)
 void
 FuncDeclaration::toObjFile (int)
 {
-  if (!global.params.useUnitTests && isUnitTestDeclaration())
-    return;
-
   // Already generated the function.
   if (semanticRun >= PASSobj)
     return;
 
-  if (!output_declaration_p (this))
+  // Not emitting unittest functions.
+  if (!global.params.useUnitTests && this->isUnitTestDeclaration())
     return;
 
   tree fndecl = toSymbol()->Stree;
 
+  // Do this even if we are not emitting the body.
+  // Such as when when -fno-emit-templates is in effect.
+  unnest_function(fndecl);
+
   if (!fbody)
     {
-      if (!isNested())
-	{
-	  // %% Should set this earlier...
-	  DECL_EXTERNAL (fndecl) = 1;
-	  TREE_PUBLIC (fndecl) = 1;
-	}
       rest_of_decl_compilation (fndecl, 1, 0);
       return;
     }
 
+  if (!output_declaration_p(this))
+    return;
+
   if (global.errors)
     return;
 
+  // Nested functions may not have its toObjFile called before the outer
+  // function is finished.  GCC requires that nested functions be finished
+  // first so we need to arrange for toObjFile to be called earlier.
+  FuncDeclaration *fdp = this->toParent2()->isFuncDeclaration();
+  if (fdp && fdp->semanticRun < PASSobj)
+    fdp->toObjFile(false);
+
   // Start generating code for this function.
-  gcc_assert(semanticRun == PASSsemantic3done);
+  gcc_assert(this->semanticRun == PASSsemantic3done);
+  this->semanticRun = PASSobj;
 
   if (global.params.verbose)
     fprintf (global.stdmsg, "function  %s\n", this->toPrettyChars());
@@ -1339,8 +1367,6 @@ FuncDeclaration::toObjFile (int)
 
   if (!errorcount && !global.errors)
     d_finish_function (this);
-
-  semanticRun = PASSobj;
 
   // Process all deferred nested functions.
   for (size_t i = 0; i < this->deferred.dim; ++i)
@@ -1898,14 +1924,6 @@ d_finish_function (FuncDeclaration *fd)
       if (DECL_STATIC_DESTRUCTOR (decl))
 	static_dtor_list.safe_push (fd);
     }
-
-  // Build cgraph for function.
-  struct cgraph_node *node = cgraph_node::get_create (decl);
-
-  // For nested functions update the cgraph to reflect unnesting,
-  // which is handled by the front-end.
-  if (node->origin)
-    node->unnest();
 
   cgraph_node::finalize_function (decl, true);
 }
