@@ -272,12 +272,6 @@ public:
     // When interpreting, these point to the value (NULL if value not determinable)
     // The index of this variable on the CTFE stack, -1 if not allocated
     int ctfeAdrOnStack;
-    // The various functions are used only to detect compiler CTFE bugs
-    Expression *getValue();
-    bool hasValue();
-    void setValueNull();
-    void setValueWithoutChecking(Expression *newval);
-    void setValue(Expression *newval);
 
     VarDeclaration *rundtor;    // if !NULL, rundtor is tested at runtime to see
                                 // if the destructor should be run. Used to prevent
@@ -615,7 +609,6 @@ public:
     CompiledCtfeFunction *ctfeCode;     // Compiled code for interpreter
     int inlineNest;                     // !=0 if nested inline
     bool isArrayOp;                     // true if array operation
-    FuncDeclaration *dArrayOp;          // D version of array op for ctfe
     bool semantic3Errors;               // true if errors in semantic3
                                         // this function's frame ptr
     ForeachStatement *fes;              // if foreach body, this is the foreach
@@ -637,7 +630,6 @@ public:
     VarDeclaration *nrvo_var;           // variable to replace with shidden
     Symbol *shidden;                    // hidden pointer passed to function
 
-    ReturnStatements *returns;
     GotoStatements *gotos;              // Gotos with forward references
 
     BUILTIN builtin;               // set if this is a known, builtin
@@ -713,8 +705,6 @@ public:
     virtual bool isFinalFunc();
     virtual bool addPreInvariant();
     virtual bool addPostInvariant();
-    Expression *interpret(InterState *istate, Expressions *arguments, Expression *thisexp = NULL);
-    void ctfeCompile();
     int canInline(int hasthis, int hdrscan, int statementsToo);
     const char *kind();
     void toDocBuffer(OutBuffer *buf, Scope *sc);

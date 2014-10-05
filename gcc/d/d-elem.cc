@@ -2433,71 +2433,54 @@ ArrayLiteralExp::toElem (IRState *irs)
 elem *
 AssocArrayLiteralExp::toElem (IRState *irs)
 {
-  Type *tb = type->toBasetype();
-  // %% want mutable type for typeinfo reference.
-  tb = tb->mutableOf();
+  // Want mutable type for typeinfo reference.
+  Type *tb = type->toBasetype()->mutableOf();
+  gcc_assert(tb->ty == Taarray);
 
-  TypeAArray *aa_type;
+  // Handle empty assoc array literals.
+  TypeAArray *ta = (TypeAArray *) tb;
+  if (keys->dim == 0)
+    return build_constructor (ta->toCtype(), NULL);
 
-  if (tb->ty == Taarray)
-    aa_type = (TypeAArray *) tb;
-  else
-    {
-      // It's the AssociativeArray type.
-      // Turn it back into a TypeAArray
-      aa_type = new TypeAArray ((*values)[0]->type, (*keys)[0]->type);
-      aa_type->semantic (loc, NULL);
-    }
-
-  Type *index = aa_type->index;
-  Type *next = aa_type->next;
-  gcc_assert (keys != NULL);
-  gcc_assert (values != NULL);
-
-  tree keys_var = create_temporary_var (d_array_type (index, keys->dim));
-  tree vals_var = create_temporary_var (d_array_type (next, keys->dim));
-  tree keys_ptr = build_nop (index->pointerTo()->toCtype(),
- 			     build_address (keys_var));
-  tree vals_ptr = build_nop (next->pointerTo()->toCtype(),
-			     build_address (vals_var));
-  tree keys_offset = size_zero_node;
-  tree vals_offset = size_zero_node;
-  tree keys_size = size_int (index->size());
-  tree vals_size = size_int (next->size());
-  tree result = NULL_TREE;
-
+  // Build an expression that assigns the expressions in KEYS and VALUES to a constructor.
+  vec<constructor_elt, va_gc> *ke = NULL;
+  vec_safe_reserve (ke, keys->dim);
   for (size_t i = 0; i < keys->dim; i++)
     {
-      Expression *e;
-      tree elemp_e, assgn_e;
-
-      e = (*keys)[i];
-      elemp_e = build_offset (keys_ptr, keys_offset);
-      assgn_e = vmodify_expr (build_deref (elemp_e), e->toElem (irs));
-      keys_offset = size_binop (PLUS_EXPR, keys_offset, keys_size);
-      result = maybe_compound_expr (result, assgn_e);
-
-      e = (*values)[i];
-      elemp_e = build_offset (vals_ptr, vals_offset);
-      assgn_e = vmodify_expr (build_deref (elemp_e), e->toElem (irs));
-      vals_offset = size_binop (PLUS_EXPR, vals_offset, vals_size);
-      result = maybe_compound_expr (result, assgn_e);
+      Expression *e = (*keys)[i];
+      tree t = e->toElem(irs);
+      t = maybe_make_temp(t);
+      CONSTRUCTOR_APPEND_ELT(ke, build_integer_cst(i, size_type_node),
+			     convert_expr(t, e->type, ta->index));
     }
+  tree akeys = build_constructor(d_array_type(ta->index, keys->dim), ke);
 
+  vec<constructor_elt, va_gc> *ve = NULL;
+  vec_safe_reserve(ve, values->dim);
+  for (size_t i = 0; i < values->dim; i++)
+    {
+      Expression *e = (*values)[i];
+      tree t = e->toElem(irs);
+      t = maybe_make_temp(t);
+      CONSTRUCTOR_APPEND_ELT(ve, build_integer_cst(i, size_type_node),
+			     convert_expr(t, e->type, ta->next));
+    }
+  tree avals = build_constructor(d_array_type(ta->next, values->dim), ve);
+
+  // Call _d_assocarrayliteralTX (ti, keys, vals);
   tree args[3];
+  args[0] = build_typeinfo(ta);
+  args[1] = d_array_value(ta->index->arrayOf()->toCtype(), size_int(keys->dim), build_address(akeys));
+  args[2] = d_array_value(ta->next->arrayOf()->toCtype(), size_int(values->dim), build_address(avals));
 
-  args[0] = build_typeinfo (aa_type);
-  args[1] = d_array_value (index->arrayOf()->toCtype(), size_int (keys->dim), keys_ptr);
-  args[2] = d_array_value (next->arrayOf()->toCtype(), size_int (keys->dim), vals_ptr);
-  result = maybe_compound_expr (result, build_libcall (LIBCALL_ASSOCARRAYLITERALTX, 3, args));
+  tree mem = build_libcall(LIBCALL_ASSOCARRAYLITERALTX, 3, args);
 
-  tree aat_type = aa_type->toCtype();
+  // Returns an AA pointed to by MEM.
+  tree aatype = ta->toCtype();
   vec<constructor_elt, va_gc> *ce = NULL;
-  CONSTRUCTOR_APPEND_ELT (ce, TYPE_FIELDS (aat_type), result);
-  tree ctor = build_constructor (aat_type, ce);
+  CONSTRUCTOR_APPEND_ELT (ce, TYPE_FIELDS (aatype), mem);
 
-  result = bind_expr (keys_var, bind_expr (vals_var, ctor));
-  return build_nop (type->toCtype(), result);
+  return build_nop (type->toCtype(), build_constructor(aatype, ce));
 }
 
 elem *

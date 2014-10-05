@@ -44,7 +44,7 @@
 #include "hdrgen.h"
 
 FuncDeclaration *hasThis(Scope *sc);
-void sizeToCBuffer(OutBuffer *buf, HdrGenState *hgs, Expression *e);
+void toCBuffer(Type *t, OutBuffer *buf, Identifier *ident, HdrGenState *hgs);
 
 #define LOGDOTEXP       0       // log ::dotExp()
 #define LOGDEFAULTINIT  0       // log ::defaultInit()
@@ -79,7 +79,6 @@ ClassDeclaration *Type::typeinfoinvariant;
 ClassDeclaration *Type::typeinfoshared;
 ClassDeclaration *Type::typeinfowild;
 
-TemplateDeclaration *Type::associativearray;
 TemplateDeclaration *Type::rtinfo;
 
 Type *Type::tvoid;
@@ -1585,54 +1584,7 @@ char *Type::toChars()
 
 void Type::toCBuffer(OutBuffer *buf, Identifier *ident, HdrGenState *hgs)
 {
-    toCBuffer2(buf, hgs, 0);
-    if (ident)
-    {
-        buf->writeByte(' ');
-        buf->writestring(ident->toChars());
-    }
-}
-
-void Type::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {
-        toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring(toChars());
-}
-
-void Type::toCBuffer3(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {
-        unsigned char m = this->mod & ~(this->mod & mod);
-        if (m & MODshared)
-        {
-            MODtoBuffer(buf, MODshared);
-            buf->writeByte('(');
-        }
-        if (m & MODwild)
-        {
-            MODtoBuffer(buf, MODwild);
-            buf->writeByte('(');
-        }
-        if (m & (MODconst | MODimmutable))
-        {
-            MODtoBuffer(buf, m & (MODconst | MODimmutable));
-            buf->writeByte('(');
-        }
-
-        toCBuffer2(buf, hgs, this->mod);
-
-        if (m & (MODconst | MODimmutable))
-            buf->writeByte(')');
-        if (m & MODwild)
-            buf->writeByte(')');
-        if (m & MODshared)
-            buf->writeByte(')');
-    }
+    ::toCBuffer(this, buf, ident, hgs);
 }
 
 /*********************************
@@ -2579,11 +2531,6 @@ Type *TypeError::syntaxCopy()
     return this;
 }
 
-void TypeError::toCBuffer(OutBuffer *buf, Identifier *ident, HdrGenState *hgs)
-{
-    buf->writestring("_error_");
-}
-
 d_uns64 TypeError::size(Loc loc) { return SIZE_INVALID; }
 Expression *TypeError::getProperty(Loc loc, Identifier *ident, int flag) { return new ErrorExp(); }
 Expression *TypeError::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag) { return new ErrorExp(); }
@@ -2663,8 +2610,6 @@ Type *TypeNext::makeConst()
                 t->next = next->constOf();
         }
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeConst() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2683,9 +2628,6 @@ Type *TypeNext::makeImmutable()
     {
         t->next = next->immutableOf();
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
-    //printf("TypeNext::makeImmutable() returns %p, %s\n", t, t->toChars());
     return t;
 }
 
@@ -2716,8 +2658,6 @@ Type *TypeNext::makeShared()
                 t->next = next->sharedOf();
         }
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeShared() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2739,8 +2679,6 @@ Type *TypeNext::makeSharedConst()
         else
             t->next = next->sharedConstOf();
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeSharedConst() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2772,8 +2710,6 @@ Type *TypeNext::makeWild()
                 t->next = next->wildOf();
         }
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeWild() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2795,8 +2731,6 @@ Type *TypeNext::makeWildConst()
         else
             t->next = next->wildConstOf();
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeWildConst() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2818,8 +2752,6 @@ Type *TypeNext::makeSharedWild()
         else
             t->next = next->sharedWildOf();
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeSharedWild() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2838,10 +2770,6 @@ Type *TypeNext::makeSharedWildConst()
     {
         t->next = next->sharedWildConstOf();
     }
-    if (ty == Taarray)
-    {
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
-    }
     //printf("TypeNext::makeSharedWildConst() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -2854,8 +2782,6 @@ Type *TypeNext::makeMutable()
     {
         t->next = next->mutableOf();
     }
-    if (ty == Taarray)
-        ((TypeAArray *)t)->impl = NULL;         // lazily recompute it
     //printf("TypeNext::makeMutable() returns %p, %s\n", t, t->toChars());
     return t;
 }
@@ -3055,16 +2981,6 @@ Type *TypeBasic::syntaxCopy()
 char *TypeBasic::toChars()
 {
     return Type::toChars();
-}
-
-void TypeBasic::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    //printf("TypeBasic::toCBuffer2(mod = %d, this->mod = %d)\n", mod, this->mod);
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring(dstring);
 }
 
 d_uns64 TypeBasic::size(Loc loc)
@@ -3711,18 +3627,6 @@ char *TypeVector::toChars()
     return Type::toChars();
 }
 
-void TypeVector::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    //printf("TypeVector::toCBuffer2(mod = %d, this->mod = %d)\n", mod, this->mod);
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring("__vector(");
-    basetype->toCBuffer2(buf, hgs, this->mod);
-    buf->writestring(")");
-}
-
 void TypeVector::toDecoBuffer(OutBuffer *buf, int flag)
 {
     if (flag != mod && flag != 0x100)
@@ -4309,18 +4213,6 @@ void TypeSArray::toDecoBuffer(OutBuffer *buf, int flag)
         next->toDecoBuffer(buf,  (flag & 0x100) ? flag : mod);
 }
 
-void TypeSArray::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    next->toCBuffer2(buf, hgs, this->mod);
-    buf->writeByte('[');
-    sizeToCBuffer(buf, hgs, dim);
-    buf->writeByte(']');
-}
-
 Expression *TypeSArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
 {
 #if LOGDOTEXP
@@ -4615,20 +4507,6 @@ void TypeDArray::toDecoBuffer(OutBuffer *buf, int flag)
         next->toDecoBuffer(buf, (flag & 0x100) ? 0 : mod);
 }
 
-void TypeDArray::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    if (equals(tstring))
-        buf->writestring("string");
-    else
-    {   next->toCBuffer2(buf, hgs, this->mod);
-        buf->writestring("[]");
-    }
-}
-
 Expression *TypeDArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
 {
 #if LOGDOTEXP
@@ -4748,7 +4626,6 @@ TypeAArray::TypeAArray(Type *t, Type *index)
     : TypeArray(Taarray, t)
 {
     this->index = index;
-    this->impl = NULL;
     this->loc = Loc();
     this->sc = NULL;
 }
@@ -4880,73 +4757,6 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
     return merge();
 }
 
-StructDeclaration *TypeAArray::getImpl()
-{
-    // Do it lazily
-    if (!impl)
-    {
-        Type *index = this->index;
-        Type *next = this->next;
-        if (index->reliesOnTident() || next->reliesOnTident())
-        {
-            error(loc, "cannot create associative array %s", toChars());
-            index = terror;
-            next = terror;
-
-            // Head off future failures
-            StructDeclaration *s = new StructDeclaration(Loc(), NULL);
-            s->type = terror;
-            impl = s;
-            return impl;
-        }
-        /* This is really a proxy for the template instance AssocArray!(index, next)
-         * But the instantiation can fail if it is a template specialization field
-         * which has Tident's instead of real types.
-         */
-        Objects *tiargs = new Objects();
-        tiargs->push(index->substWildTo(MODconst)); // hack for bug7757
-        tiargs->push(next ->substWildTo(MODconst)); // hack for bug7757
-
-        // Create AssociativeArray!(index, next)
-#if 1
-        if (! Type::associativearray)
-        {
-            ObjectNotFound(Id::AssociativeArray);
-        }
-        TemplateInstance *ti = new TemplateInstance(loc, Type::associativearray, tiargs);
-#else
-        //Expression *e = new IdentifierExp(loc, Id::object);
-        Expression *e = new IdentifierExp(loc, Id::empty);
-        //e = new DotIdExp(loc, e, Id::object);
-        DotTemplateInstanceExp *dti = new DotTemplateInstanceExp(loc,
-                    e,
-                    Id::AssociativeArray,
-                    tiargs);
-        dti->semantic(sc);
-        TemplateInstance *ti = dti->ti;
-#endif
-        // Instantiate on the root module of import dependency graph.
-        Module *mi = sc->module->importedFrom;
-        Scope *scx = sc->push(mi);
-        scx->module = mi;
-        scx->tinst = NULL;
-        assert(scx->instantiatingModule() == mi);
-        ti->semantic(scx);
-        ti->semantic2(scx);
-        ti->semantic3(scx);
-        scx->pop();
-        impl = ti->toAlias()->isStructDeclaration();
-#ifdef DEBUG
-        if (!impl)
-        {   Dsymbol *s = ti->toAlias();
-            printf("%s %s\n", s->kind(), s->toChars());
-        }
-#endif
-        assert(impl);
-    }
-    return impl;
-}
-
 void TypeAArray::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid)
 {
     //printf("TypeAArray::resolve() %s\n", toChars());
@@ -4982,17 +4792,20 @@ Expression *TypeAArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
 #if LOGDOTEXP
     printf("TypeAArray::dotExp(e = '%s', ident = '%s')\n", e->toChars(), ident->toChars());
 #endif
-    if (ident != Id::__sizeof &&
-        ident != Id::__xalignof &&
-        ident != Id::init &&
-        ident != Id::mangleof &&
-        ident != Id::stringof &&
-        ident != Id::offsetof)
+    if (ident == Id::length)
     {
-        Type *t = getImpl()->type;
-        e = e->copy();
-        e->type = t;
-        e = t->dotExp(sc, e, ident, flag);
+        Expression *ec;
+        FuncDeclaration *fd;
+        Expressions *arguments;
+
+        Parameters *fparams = new Parameters();
+        fparams->push(new Parameter(STCin, this, NULL, NULL));
+        fd = FuncDeclaration::genCfunc(fparams, Type::tsize_t, Id::aaLen);
+        ec = new VarExp(e->loc, fd);
+        arguments = new Expressions();
+        arguments->push(e);
+        e = new CallExp(e->loc, ec, arguments);
+        e->type = ((TypeFunction *)fd->type)->next;
     }
     else
         e = Type::dotExp(sc, e, ident, flag);
@@ -5004,18 +4817,6 @@ void TypeAArray::toDecoBuffer(OutBuffer *buf, int flag)
     Type::toDecoBuffer(buf, flag);
     index->toDecoBuffer(buf);
     next->toDecoBuffer(buf, (flag & 0x100) ? 0 : mod);
-}
-
-void TypeAArray::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    next->toCBuffer2(buf, hgs, this->mod);
-    buf->writeByte('[');
-    index->toCBuffer2(buf, hgs, 0);
-    buf->writeByte(']');
 }
 
 Expression *TypeAArray::defaultInit(Loc loc)
@@ -5078,16 +4879,6 @@ MATCH TypeAArray::implicitConvTo(Type *to)
         {
             return MODimplicitConv(mod, to->mod) ? MATCHconst : MATCHnomatch;
         }
-    }
-    else if (to->ty == Tstruct && ((TypeStruct *)to)->sym->ident == Id::AssociativeArray)
-    {
-        int errs = global.startGagging();
-        Type *from = getImpl()->type;
-        if (global.endGagging(errs))
-        {
-            return MATCHnomatch;
-        }
-        return from->implicitConvTo(to);
     }
     return Type::implicitConvTo(to);
 }
@@ -5178,18 +4969,6 @@ Type *TypePointer::semantic(Loc loc, Scope *sc)
 d_uns64 TypePointer::size(Loc loc)
 {
     return Target::ptrsize;
-}
-
-void TypePointer::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    //printf("TypePointer::toCBuffer2() next = %d\n", next->ty);
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    next->toCBuffer2(buf, hgs, this->mod);
-    if (next->ty != Tfunction)
-        buf->writeByte('*');
 }
 
 MATCH TypePointer::implicitConvTo(Type *to)
@@ -5321,16 +5100,6 @@ Type *TypeReference::semantic(Loc loc, Scope *sc)
 d_uns64 TypeReference::size(Loc loc)
 {
     return Target::ptrsize;
-}
-
-void TypeReference::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    next->toCBuffer2(buf, hgs, this->mod);
-    buf->writeByte('&');
 }
 
 Expression *TypeReference::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
@@ -5648,184 +5417,6 @@ void TypeFunction::toDecoBuffer(OutBuffer *buf, int flag)
     if (next != NULL)
         next->toDecoBuffer(buf);
     inuse--;
-}
-
-void TypeFunction::toCBuffer(OutBuffer *buf, Identifier *ident, HdrGenState *hgs)
-{
-    toCBufferWithAttributes(buf, ident, hgs, this, NULL);
-}
-
-void TypeFunction::toCBufferWithAttributes(OutBuffer *buf, Identifier *ident, HdrGenState* hgs, TypeFunction *attrs, TemplateDeclaration *td)
-{
-    //printf("TypeFunction::toCBuffer() this = %p\n", this);
-    if (inuse)
-    {   inuse = 2;              // flag error to caller
-        return;
-    }
-    inuse++;
-
-    /* Use 'storage class' style for attributes
-     */
-    if (attrs->mod)
-    {
-        MODtoBuffer(buf, attrs->mod);
-        buf->writeByte(' ');
-    }
-
-    if (attrs->purity)
-        buf->writestring("pure ");
-    if (attrs->isnothrow)
-        buf->writestring("nothrow ");
-    if (attrs->isproperty)
-        buf->writestring("@property ");
-    if (attrs->isref)
-        buf->writestring("ref ");
-
-    switch (attrs->trust)
-    {
-        case TRUSTsystem:
-            buf->writestring("@system ");
-            break;
-
-        case TRUSTtrusted:
-            buf->writestring("@trusted ");
-            break;
-
-        case TRUSTsafe:
-            buf->writestring("@safe ");
-            break;
-        default: break;
-    }
-
-    if (hgs->ddoc != 1)
-    {
-        const char *p = NULL;
-        switch (attrs->linkage)
-        {
-            case LINKd:         p = NULL;       break;
-            case LINKc:         p = "C";        break;
-            case LINKwindows:   p = "Windows";  break;
-            case LINKpascal:    p = "Pascal";   break;
-            case LINKcpp:       p = "C++";      break;
-            default:
-                assert(0);
-        }
-        if (!hgs->hdrgen && p)
-        {
-            buf->writestring("extern (");
-            buf->writestring(p);
-            buf->writestring(") ");
-        }
-    }
-
-    if (!ident || ident->toHChars2() == ident->toChars())
-    {   if (next)
-            next->toCBuffer2(buf, hgs, 0);
-        else if (hgs->ddoc)
-            buf->writestring("auto");
-    }
-
-    if (ident)
-    {
-        if (next || hgs->ddoc)
-            buf->writeByte(' ');
-        buf->writestring(ident->toHChars2());
-    }
-
-    if (td)
-    {   buf->writeByte('(');
-        for (size_t i = 0; i < td->origParameters->dim; i++)
-        {
-            TemplateParameter *tp = (*td->origParameters)[i];
-            if (i)
-                buf->writestring(", ");
-            tp->toCBuffer(buf, hgs);
-        }
-        buf->writeByte(')');
-    }
-    Parameter::argsToCBuffer(buf, hgs, parameters, varargs);
-    inuse--;
-}
-
-// kind is inserted before the argument list and will usually be "function" or "delegate".
-void functionToCBuffer2(TypeFunction *t, OutBuffer *buf, HdrGenState *hgs, int mod, const char *kind)
-{
-    if (hgs->ddoc != 1)
-    {
-        const char *p = NULL;
-        switch (t->linkage)
-        {
-            case LINKd:         p = NULL;       break;
-            case LINKc:         p = "C";        break;
-            case LINKwindows:   p = "Windows";  break;
-            case LINKpascal:    p = "Pascal";   break;
-            case LINKcpp:       p = "C++";      break;
-            default:
-                assert(0);
-        }
-        if (!hgs->hdrgen && p)
-        {
-            buf->writestring("extern (");
-            buf->writestring(p);
-            buf->writestring(") ");
-        }
-    }
-    if (t->next)
-    {
-        t->next->toCBuffer2(buf, hgs, 0);
-        buf->writeByte(' ');
-    }
-    buf->writestring(kind);
-    Parameter::argsToCBuffer(buf, hgs, t->parameters, t->varargs);
-    t->attributesToCBuffer(buf, mod);
-}
-
-void TypeFunction::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    //printf("TypeFunction::toCBuffer2() this = %p, ref = %d\n", this, isref);
-    if (inuse)
-    {   inuse = 2;              // flag error to caller
-        return;
-    }
-    inuse++;
-
-    functionToCBuffer2(this, buf, hgs, mod, "function");
-
-    inuse--;
-}
-
-void TypeFunction::attributesToCBuffer(OutBuffer *buf, int mod)
-{
-    /* Use postfix style for attributes
-     */
-    if (mod != this->mod)
-    {
-        modToBuffer(buf);
-    }
-    if (purity)
-        buf->writestring(" pure");
-    if (isnothrow)
-        buf->writestring(" nothrow");
-    if (isproperty)
-        buf->writestring(" @property");
-    if (isref)
-        buf->writestring(" ref");
-
-    switch (trust)
-    {
-        case TRUSTsystem:
-            buf->writestring(" @system");
-            break;
-
-        case TRUSTtrusted:
-            buf->writestring(" @trusted");
-            break;
-
-        case TRUSTsafe:
-            buf->writestring(" @safe");
-            break;
-        default: break;
-    }
 }
 
 Type *TypeFunction::semantic(Loc loc, Scope *sc)
@@ -6668,16 +6259,6 @@ MATCH TypeDelegate::implicitConvTo(Type *to)
     return MATCHnomatch;
 }
 
-void TypeDelegate::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-
-    functionToCBuffer2((TypeFunction *)next, buf, hgs, mod, "delegate");
-}
-
 Expression *TypeDelegate::defaultInit(Loc loc)
 {
 #if LOGDEFAULTINIT
@@ -6786,23 +6367,6 @@ void TypeQualified::addIdent(Identifier *ident)
 void TypeQualified::addInst(TemplateInstance *inst)
 {
     idents.push(inst);
-}
-
-void TypeQualified::toCBuffer2Helper(OutBuffer *buf, HdrGenState *hgs)
-{
-    for (size_t i = 0; i < idents.dim; i++)
-    {   RootObject *id = idents[i];
-
-        buf->writeByte('.');
-
-        if (id->dyncast() == DYNCAST_DSYMBOL)
-        {
-            TemplateInstance *ti = (TemplateInstance *)id;
-            ti->toCBuffer(buf, hgs);
-        }
-        else
-            buf->writestring(id->toChars());
-    }
 }
 
 d_uns64 TypeQualified::size(Loc loc)
@@ -7056,16 +6620,6 @@ void TypeIdentifier::toDecoBuffer(OutBuffer *buf, int flag)
     buf->printf("%u%s", (unsigned)len, name);
 }
 
-void TypeIdentifier::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring(this->ident->toChars());
-    toCBuffer2Helper(buf, hgs);
-}
-
 /*************************************
  * Takes an array of Identifiers and figures out if
  * it represents a Type or an Expression.
@@ -7248,17 +6802,6 @@ Type *TypeInstance::syntaxCopy()
     return t;
 }
 
-
-void TypeInstance::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    tempinst->toCBuffer(buf, hgs);
-    toCBuffer2Helper(buf, hgs);
-}
-
 void TypeInstance::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid)
 {
     // Note close similarity to TypeIdentifier::resolve()
@@ -7414,18 +6957,6 @@ Dsymbol *TypeTypeof::toDsymbol(Scope *sc)
     if (t == this)
         return NULL;
     return t->toDsymbol(sc);
-}
-
-void TypeTypeof::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring("typeof(");
-    exp->toCBuffer(buf, hgs);
-    buf->writeByte(')');
-    toCBuffer2Helper(buf, hgs);
 }
 
 void TypeTypeof::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid)
@@ -7674,17 +7205,6 @@ Type *TypeReturn::semantic(Loc loc, Scope *sc)
     return t;
 }
 
-void TypeReturn::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring("typeof(return)");
-    toCBuffer2Helper(buf, hgs);
-}
-
-
 /***************************** TypeEnum *****************************/
 
 TypeEnum::TypeEnum(EnumDeclaration *sym)
@@ -7748,15 +7268,6 @@ void TypeEnum::toDecoBuffer(OutBuffer *buf, int flag)
     const char *name = sym->mangle();
     Type::toDecoBuffer(buf, flag);
     buf->writestring(name);
-}
-
-void TypeEnum::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring(sym->toChars());
 }
 
 Expression *TypeEnum::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
@@ -7975,16 +7486,6 @@ void TypeTypedef::toDecoBuffer(OutBuffer *buf, int flag)
     Type::toDecoBuffer(buf, flag);
     const char *name = sym->mangle();
     buf->writestring(name);
-}
-
-void TypeTypedef::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    //printf("TypeTypedef::toCBuffer2() '%s'\n", sym->toChars());
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring(sym->toChars());
 }
 
 Expression *TypeTypedef::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
@@ -8279,20 +7780,6 @@ void TypeStruct::toDecoBuffer(OutBuffer *buf, int flag)
     //printf("TypeStruct::toDecoBuffer('%s') = '%s'\n", toChars(), name);
     Type::toDecoBuffer(buf, flag);
     buf->writestring(name);
-}
-
-void TypeStruct::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {
-        toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    TemplateInstance *ti = sym->parent->isTemplateInstance();
-    if (ti && ti->toAlias() == sym)
-        buf->writestring(ti->toChars());
-    else
-        buf->writestring(sym->toChars());
 }
 
 Expression *TypeStruct::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
@@ -8683,18 +8170,6 @@ MATCH TypeStruct::implicitConvTo(Type *to)
 {   MATCH m;
 
     //printf("TypeStruct::implicitConvTo(%s => %s)\n", toChars(), to->toChars());
-    if (to->ty == Taarray && sym->ident == Id::AssociativeArray)
-    {
-        /* If there is an error instantiating AssociativeArray!(), it shouldn't
-         * be reported -- it just means implicit conversion is impossible.
-         */
-        int errs = global.startGagging();
-        to = ((TypeAArray*)to)->getImpl()->type;
-        if (global.endGagging(errs))
-        {
-            return MATCHnomatch;
-        }
-    }
 
     if (ty == to->ty && sym == ((TypeStruct *)to)->sym)
     {
@@ -8840,20 +8315,6 @@ void TypeClass::toDecoBuffer(OutBuffer *buf, int flag)
     //printf("TypeClass::toDecoBuffer('%s' flag=%d mod=%x) = '%s'\n", toChars(), flag, mod, name);
     Type::toDecoBuffer(buf, flag);
     buf->writestring(name);
-}
-
-void TypeClass::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {
-        toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    TemplateInstance *ti = sym->parent->isTemplateInstance();
-    if (ti && ti->toAlias() == sym)
-        buf->writestring(ti->toChars());
-    else
-        buf->writestring(sym->toChars());
 }
 
 Expression *TypeClass::dotExp(Scope *sc, Expression *e, Identifier *ident, int flag)
@@ -9511,11 +8972,6 @@ Type *TypeTuple::makeConst()
 }
 #endif
 
-void TypeTuple::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    Parameter::argsToCBuffer(buf, hgs, arguments, 0);
-}
-
 void TypeTuple::toDecoBuffer(OutBuffer *buf, int flag)
 {
     //printf("TypeTuple::toDecoBuffer() this = %p, %s\n", this, toChars());
@@ -9698,21 +9154,6 @@ void TypeSlice::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol 
     }
 }
 
-void TypeSlice::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {   toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    next->toCBuffer2(buf, hgs, this->mod);
-
-    buf->writeByte('[');
-    sizeToCBuffer(buf, hgs, lwr);
-    buf->writestring(" .. ");
-    sizeToCBuffer(buf, hgs, upr);
-    buf->writeByte(']');
-}
-
 /***************************** TypeNull *****************************/
 
 TypeNull::TypeNull()
@@ -9763,16 +9204,6 @@ void TypeNull::toDecoBuffer(OutBuffer *buf, int flag)
 {
     //tvoidptr->toDecoBuffer(buf, flag);
     Type::toDecoBuffer(buf, flag);
-}
-
-void TypeNull::toCBuffer2(OutBuffer *buf, HdrGenState *hgs, int mod)
-{
-    if (mod != this->mod)
-    {
-        toCBuffer3(buf, hgs, mod);
-        return;
-    }
-    buf->writestring("typeof(null)");
 }
 
 d_uns64 TypeNull::size(Loc loc) { return tvoidptr->size(loc); }

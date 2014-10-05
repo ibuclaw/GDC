@@ -102,7 +102,7 @@ gdc-cross$(exeext): gdc$(exeext)
 
 # D Frontend sources
 D_DMD_OBJS := \
-    d/argtypes.dmd.o d/aav.dmd.o d/access.dmd.o d/aliasthis.dmd.o \
+    d/aav.dmd.o d/access.dmd.o d/aliasthis.dmd.o \
     d/apply.dmd.o d/arrayop.dmd.o d/attrib.dmd.o \
     d/canthrow.dmd.o d/cast.dmd.o d/class.dmd.o \
     d/clone.dmd.o d/cond.dmd.o d/constfold.dmd.o d/cppmangle.dmd.o \

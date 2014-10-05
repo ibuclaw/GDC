@@ -37,6 +37,8 @@
 #include "mtype.h"
 #include "utf.h"
 
+void functionToBufferFull(TypeFunction *tf, OutBuffer *buf, Identifier *ident, HdrGenState* hgs, TypeFunction *attrs, TemplateDeclaration *td);
+
 struct Escape
 {
     const char *strings[256];
@@ -199,6 +201,7 @@ DDOC_BLANKLINE  = $(BR)$(BR)\n\
 \n\
 DDOC_ANCHOR     = <a name=\"$1\"></a>\n\
 DDOC_PSYMBOL    = $(U $0)\n\
+DDOC_PSUPER_SYMBOL = $(U $0)\n\
 DDOC_KEYWORD    = $(B $0)\n\
 DDOC_PARAM      = $(I $0)\n\
 \n\
@@ -556,7 +559,7 @@ void emitUnittestComment(Scope *sc, Dsymbol *s, size_t ofs)
         while (*c == ' ' || *c == '\t' || *c == '\n' || *c == '\r') ++c;
 
         OutBuffer codebuf;
-        codebuf.writestring("$(DDOC_EXAMPLES \n");
+        codebuf.writestring("$(DDOC_EXAMPLES ");
         size_t o = codebuf.offset;
         codebuf.writestring((char *)c);
 
@@ -571,7 +574,9 @@ void emitUnittestComment(Scope *sc, Dsymbol *s, size_t ofs)
         }
 
         codebuf.writestring(")");
-        buf->insert(buf->offset - ofs, codebuf.data, codebuf.offset);
+        buf->insert(ofs, codebuf.data, codebuf.offset);
+        ofs += codebuf.offset;
+        sc->lastoffset2 = ofs;
     }
 }
 
@@ -605,12 +610,13 @@ void Dsymbol::emitDitto(Scope *sc)
     buf->spread(sc->lastoffset, b.offset);
     memcpy(buf->data + sc->lastoffset, b.data, b.offset);
     sc->lastoffset += b.offset;
+    sc->lastoffset2 += b.offset;
 
     Dsymbol *s = this;
     if (!s->ddocUnittest && parent)
         s = parent->isTemplateDeclaration();
     if (s)
-        emitUnittestComment(sc, s, strlen(ddoc_decl_dd_e));
+        emitUnittestComment(sc, s, sc->lastoffset2);
 }
 
 void ScopeDsymbol::emitMemberComments(Scope *sc)
@@ -619,18 +625,18 @@ void ScopeDsymbol::emitMemberComments(Scope *sc)
     OutBuffer *buf = sc->docbuf;
 
     if (members)
-    {   const char *m = "$(DDOC_MEMBERS \n";
-
+    {
+        const char *m = "$(DDOC_MEMBERS ";
         if (isModule())
-            m = "$(DDOC_MODULE_MEMBERS \n";
+            m = "$(DDOC_MODULE_MEMBERS ";
         else if (isClassDeclaration())
-            m = "$(DDOC_CLASS_MEMBERS \n";
+            m = "$(DDOC_CLASS_MEMBERS ";
         else if (isStructDeclaration())
-            m = "$(DDOC_STRUCT_MEMBERS \n";
+            m = "$(DDOC_STRUCT_MEMBERS ";
         else if (isEnumDeclaration())
-            m = "$(DDOC_ENUM_MEMBERS \n";
+            m = "$(DDOC_ENUM_MEMBERS ";
         else if (isTemplateDeclaration())
-            m = "$(DDOC_TEMPLATE_MEMBERS \n";
+            m = "$(DDOC_TEMPLATE_MEMBERS ";
 
         size_t offset1 = buf->offset;         // save starting offset
         buf->writestring(m);
@@ -895,7 +901,7 @@ void prefix(OutBuffer *buf, Dsymbol *s)
         else if (d->isAbstract())
             buf->writestring("abstract ");
 
-        if (!d->isFuncDeclaration())  // toCBufferWithAttributes handles this
+        if (!d->isFuncDeclaration())  // functionToBufferFull handles this
         {
             if (d->isConst())
                 buf->writestring("const ");
@@ -924,7 +930,7 @@ void declarationToDocBuffer(Declaration *decl, OutBuffer *buf, TemplateDeclarati
             if (origType->ty == Tfunction)
             {
                 TypeFunction *attrType = (TypeFunction*)(decl->ident == Id::ctor ? origType : decl->type);
-                ((TypeFunction*)origType)->toCBufferWithAttributes(buf, decl->ident, &hgs, attrType, td);
+                functionToBufferFull(((TypeFunction*)origType), buf, decl->ident, &hgs, attrType, td);
             }
             else
                 origType->toCBuffer(buf, decl->ident, &hgs);
@@ -1156,7 +1162,7 @@ void ClassDeclaration::toDocBuffer(OutBuffer *buf, Scope *sc)
             emitProtection(buf, bc->protection);
             if (bc->base)
             {
-                buf->writestring(bc->base->toPrettyChars());
+                buf->printf("$(DDOC_PSUPER_SYMBOL %s)", bc->base->toPrettyChars());
             }
             else
             {
@@ -1359,7 +1365,7 @@ void DocComment::writeSections(Scope *sc, Dsymbol *s, OutBuffer *buf)
     //printf("DocComment::writeSections()\n");
     if (sections.dim || s->ddocUnittest)
     {
-        buf->writestring("$(DDOC_SECTIONS \n");
+        buf->writestring("$(DDOC_SECTIONS ");
         for (size_t i = 0; i < sections.dim; i++)
         {   Section *sec = sections[i];
 
@@ -1379,7 +1385,8 @@ void DocComment::writeSections(Scope *sc, Dsymbol *s, OutBuffer *buf)
             }
         }
         if (s->ddocUnittest)
-            emitUnittestComment(sc, s, 0);
+            emitUnittestComment(sc, s, buf->offset);
+        sc->lastoffset2 = buf->offset;
         buf->writestring(")\n");
     }
     else
@@ -1454,7 +1461,7 @@ void ParamSection::write(DocComment *dc, Scope *sc, Dsymbol *s, OutBuffer *buf)
     size_t o, paramcount = 0;
     Parameter *arg;
 
-    buf->writestring("$(DDOC_PARAMS \n");
+    buf->writestring("$(DDOC_PARAMS ");
     while (p < pend)
     {
         // Skip to start of macro
@@ -2255,7 +2262,8 @@ void highlightText(Scope *sc, Dsymbol *s, OutBuffer *buf, size_t offset)
                         i -= 2; // in next loop, c should be '\n'
                     }
                     else
-                    {   static const char pre[] = "$(D_CODE \n";
+                    {
+                        static const char pre[] = "$(D_CODE ";
 
                         inCode = 1;
                         codeIndent = istart - iLineStart;  // save indent count

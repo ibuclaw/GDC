@@ -66,7 +66,6 @@ static const attribute_spec d_attribute_table[] =
 #undef LANG_HOOKS_INIT_TS
 #undef LANG_HOOKS_INIT_OPTIONS
 #undef LANG_HOOKS_INIT_OPTIONS_STRUCT
-#undef LANG_HOOKS_INITIALIZE_DIAGNOSTICS
 #undef LANG_HOOKS_OPTION_LANG_MASK
 #undef LANG_HOOKS_HANDLE_OPTION
 #undef LANG_HOOKS_POST_OPTIONS
@@ -90,7 +89,6 @@ static const attribute_spec d_attribute_table[] =
 #define LANG_HOOKS_INIT_TS			d_init_ts
 #define LANG_HOOKS_INIT_OPTIONS			d_init_options
 #define LANG_HOOKS_INIT_OPTIONS_STRUCT		d_init_options_struct
-#define LANG_HOOKS_INITIALIZE_DIAGNOSTICS	d_initialize_diagnostics
 #define LANG_HOOKS_OPTION_LANG_MASK		d_option_lang_mask
 #define LANG_HOOKS_HANDLE_OPTION		d_handle_option
 #define LANG_HOOKS_POST_OPTIONS			d_post_options
@@ -202,15 +200,6 @@ d_init_options_struct (gcc_options *opts)
 
   // D says that signed overflow is precisely defined.
   opts->x_flag_wrapv = 1;
-}
-
-static void
-d_initialize_diagnostics (diagnostic_context *context)
-{
-  // We don't need any of these in error messages.
-  context->show_caret = false;
-  context->show_option_requested = false;
-  context->show_column = false;
 }
 
 /* Return language mask for option parsing.  */

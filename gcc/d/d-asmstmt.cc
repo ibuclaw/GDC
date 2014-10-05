@@ -125,67 +125,6 @@ ExtAsmStatement::semantic (Scope *sc)
   return this;
 }
 
-// Write C-style representation of ExtAsmStatement to BUF.
-
-void
-ExtAsmStatement::toCBuffer (OutBuffer *buf, HdrGenState *hgs ATTRIBUTE_UNUSED)
-{
-  buf->writestring ("gcc asm { ");
-
-  if (this->insn)
-    buf->writestring (this->insn->toChars());
-
-  buf->writestring (" : ");
-
-  if (this->args)
-    {
-      for (size_t i = 0; i < this->args->dim; i++)
-	{
-	  Identifier *name = (*this->names)[i];
-	  Expression *constr = (*this->constraints)[i];
-	  Expression *arg = (*this->args)[i];
-
-	  if (name)
-	    {
-	      buf->writestring ("[");
-	      buf->writestring (name->toChars());
-	      buf->writestring ("] ");
-	    }
-
-	  if (constr)
-	    {
-	      buf->writestring (constr->toChars());
-	      buf->writestring (" ");
-	    }
-
-	  if (arg)
-	    buf->writestring (arg->toChars());
-
-	  if (i < this->outputargs - 1)
-	    buf->writestring (", ");
-	  else if (i == this->outputargs - 1)
-	    buf->writestring (" : ");
-	  else if (i < this->args->dim - 1)
-	    buf->writestring (", ");
-	}
-    }
-
-  if (this->clobbers)
-    {
-      buf->writestring (" : ");
-      for (size_t i = 0; i < this->clobbers->dim; i++)
-	{
-	  Expression *clobber = (*this->clobbers)[i];
-	  buf->writestring (clobber->toChars());
-	  if (i < this->clobbers->dim - 1)
-	    buf->writestring (", ");
-	}
-    }
-
-  buf->writestring ("; }");
-  buf->writenl();
-}
-
 // Return how an ExtAsmStatement exits.
 
 int

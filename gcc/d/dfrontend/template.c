@@ -41,6 +41,7 @@
 size_t templateParameterLookup(Type *tparam, TemplateParameters *parameters);
 int arrayObjectMatch(Objects *oa1, Objects *oa2);
 hash_t arrayObjectHash(Objects *oa1);
+void functionToBufferFull(TypeFunction *tf, OutBuffer *buf, Identifier *ident, HdrGenState* hgs, TypeFunction *attrs, TemplateDeclaration *td);
 
 /********************************************
  * These functions substitute for dynamic_cast. dynamic_cast does not work
@@ -499,9 +500,7 @@ void TemplateDeclaration::semantic(Scope *sc)
     // Remember templates defined in module object that we need to know about
     if (sc->module && sc->module->ident == Id::object)
     {
-        if (ident == Id::AssociativeArray)
-            Type::associativearray = this;
-        else if (ident == Id::RTInfo)
+        if (ident == Id::RTInfo)
             Type::rtinfo = this;
     }
 
@@ -2558,7 +2557,7 @@ void TemplateDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
         if (fd && fd->type && fd->type->ty == Tfunction && fd->ident == ident)
         {
             TypeFunction *tf = (TypeFunction *)fd->type;
-            tf->toCBufferWithAttributes(buf, ident, hgs, tf, this);
+            functionToBufferFull(tf, buf, ident, hgs, tf, this);
 
             if (constraint)
             {
@@ -3344,10 +3343,6 @@ MATCH Type::deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters,
                 goto Lnomatch;
         }
 
-        // Can't instantiate AssociativeArray!() without a scope
-        if (tparam->ty == Taarray && !((TypeAArray*)tparam)->sc)
-            ((TypeAArray*)tparam)->sc = sc;
-
         MATCH m = implicitConvTo(tparam);
         if (m == MATCHnomatch)
         {
@@ -3440,36 +3435,41 @@ MATCH TypeSArray::deduceType(Scope *sc, Type *tparam, TemplateParameters *parame
             return m;
         }
 
-        Identifier *id = NULL;
+        TemplateParameter *tp = NULL;
+        Expression *edim = NULL;
+        size_t i;
         if (tparam->ty == Tsarray)
         {
-            TypeSArray *tp = (TypeSArray *)tparam;
-            if (tp->dim->op == TOKvar &&
-                ((VarExp *)tp->dim)->var->storage_class & STCtemplateparameter)
+            TypeSArray *tsa = (TypeSArray *)tparam;
+            if (tsa->dim->op == TOKvar &&
+                ((VarExp *)tsa->dim)->var->storage_class & STCtemplateparameter)
             {
-                id = ((VarExp *)tp->dim)->var->ident;
+                Identifier *id = ((VarExp *)tsa->dim)->var->ident;
+                i = templateIdentifierLookup(id, parameters);
+                assert(i != IDX_NOTFOUND);
+                tp = (*parameters)[i];
             }
-            else if (dim->toInteger() != tp->dim->toInteger())
-                return MATCHnomatch;
+            else
+                edim = tsa->dim;
         }
         else if (tparam->ty == Taarray)
         {
-            TypeAArray *tp = (TypeAArray *)tparam;
-            if (tp->index->ty == Tident &&
-                ((TypeIdentifier *)tp->index)->idents.dim == 0)
+            TypeAArray *taa = (TypeAArray *)tparam;
+            i = templateParameterLookup(taa->index, parameters);
+            if (i != IDX_NOTFOUND)
+                tp = (*parameters)[i];
+            else
             {
-                id = ((TypeIdentifier *)tp->index)->ident;
+                Expression *e;
+                Type *t;
+                Dsymbol *s;
+                taa->index->resolve(Loc(), sc, &e, &t, &s);
+                edim = s ? getValue(s) : getValue(e);
             }
         }
-        if (id)
+        if (tp && tp->matchArg(sc, dim, i, parameters, dedtypes, NULL) ||
+            edim && edim->toInteger() == dim->toInteger())
         {
-            // This code matches code in TypeInstance::deduceType()
-            size_t i = templateIdentifierLookup(id, parameters);
-            if (i == IDX_NOTFOUND)
-                goto Lnomatch;
-            TemplateParameter *tp = (*parameters)[i];
-            if (!tp->matchArg(sc, dim, i, parameters, dedtypes, NULL))
-                goto Lnomatch;
             return next->deduceType(sc, tparam->nextOf(), parameters, dedtypes, wm);
         }
     }
@@ -4723,12 +4723,6 @@ void TemplateValueParameter::semantic(Scope *sc, TemplateParameters *parameters)
         return;
     }
     valType = valType->semantic(loc, sc);
-    if (!(valType->isintegral() || valType->isfloating() || valType->isString()) &&
-        valType->ty != Tident)
-    {
-        if (valType != Type::terror)
-            error(loc, "arithmetic/string type expected for value-parameter, not %s", valType->toChars());
-    }
 
 #if 0   // defer semantic analysis to arg match
     if (specValue)
@@ -6349,10 +6343,10 @@ bool TemplateInstance::findBestMatch(Scope *sc, Expressions *fargs)
 
         if (p.td_ambig)
         {
-            ::error(loc, "%s %s.%s matches more than one template declaration:\n\t%s(%d):%s\nand\n\t%s(%d):%s",
+            ::error(loc, "%s %s.%s matches more than one template declaration:\n\t%s:%s\nand\n\t%s:%s",
                     p.td_best->kind(), p.td_best->parent->toPrettyChars(), p.td_best->ident->toChars(),
-                    p.td_best->loc.filename,  p.td_best->loc.linnum,  p.td_best->toChars(),
-                    p.td_ambig->loc.filename, p.td_ambig->loc.linnum, p.td_ambig->toChars());
+                    p.td_best->loc.toChars() , p.td_best->toChars(),
+                    p.td_ambig->loc.toChars(), p.td_ambig->toChars());
             return false;
         }
         if (p.td_best)
@@ -6658,7 +6652,7 @@ bool TemplateInstance::hasNestedArgs(Objects *args, bool isstatic)
         }
         else if (va)
         {
-            nested |= hasNestedArgs(&va->objects, isstatic);
+            nested |= (int)hasNestedArgs(&va->objects, isstatic);
         }
     }
     //printf("-TemplateInstance::hasNestedArgs('%s') = %d\n", tempdecl->ident->toChars(), nested);

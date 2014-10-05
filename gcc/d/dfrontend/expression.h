@@ -32,7 +32,6 @@ class Dsymbol;
 class Import;
 class Module;
 class ScopeDsymbol;
-struct InlineDoState;
 class Expression;
 class Declaration;
 class AggregateDeclaration;
@@ -68,8 +67,6 @@ struct elem;
 
 void initPrecedence();
 
-typedef int (*apply_fp_t)(Expression *, void *);
-
 Expression *resolveProperties(Scope *sc, Expression *e);
 Expression *resolvePropertiesOnly(Scope *sc, Expression *e1);
 void accessCheck(Loc loc, Scope *sc, Expression *e, Declaration *d);
@@ -91,13 +88,25 @@ Expression *resolveAliasThis(Scope *sc, Expression *e);
 Expression *callCpCtor(Scope *sc, Expression *e);
 Expression *resolveOpDollar(Scope *sc, ArrayExp *ae);
 Expression *resolveOpDollar(Scope *sc, SliceExp *se);
+Expression *integralPromotions(Expression *e, Scope *sc);
+void discardValue(Expression *e);
 
+int isConst(Expression *e);
+Expression *toDelegate(Expression *e, Scope *sc, Type *t);
 AggregateDeclaration *isAggregate(Type *t);
 IntRange getIntRange(Expression *e);
 bool isArrayOperand(Expression *e);
 Expression *arrayOp(BinExp *e, Scope *sc);
 Expression *arrayOp(BinAssignExp *e, Scope *sc);
 bool hasSideEffect(Expression *e);
+bool canThrow(Expression *e, bool mustNotThrow);
+Expression *Expression_optimize(Expression *e, int result, bool keepLvalue);
+MATCH implicitConvTo(Expression *e, Type *t);
+Expression *implicitCastTo(Expression *e, Scope *sc, Type *t);
+Expression *castTo(Expression *e, Scope *sc, Type *t);
+void toCBuffer(Expression *e, OutBuffer *buf, HdrGenState *hgs);
+Expression *ctfeInterpret(Expression *);
+Expression *inlineCopy(Expression *e, Scope *sc);
 
 /* Run CTFE on the expression, but allow the expression to be a TypeExp
  * or a tuple containing a TypeExp. (This is required by pragma(msg)).
@@ -113,6 +122,8 @@ enum CtfeGoal
     ctfeNeedLvalueRef,// Must return a reference to an Lvalue (for ref types)
     ctfeNeedNothing   // The return value is not required
 };
+
+Expression *interpret(Expression *e, InterState *istate, CtfeGoal goal);
 
 #define WANTflags   1
 #define WANTvalue   2
@@ -132,7 +143,6 @@ public:
     static void init();
     Expression *copy();
     virtual Expression *syntaxCopy();
-    int apply(apply_fp_t fp, void *param);
     virtual Expression *semantic(Scope *sc);
     Expression *trySemantic(Scope *sc);
 
@@ -155,14 +165,26 @@ public:
     virtual real_t toImaginary();
     virtual complex_t toComplex();
     virtual StringExp *toStringExp();
-    virtual void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
+    void toCBuffer(OutBuffer *buf, HdrGenState *hgs)
+    {
+        ::toCBuffer(this, buf, hgs);
+    }
     virtual void toMangleBuffer(OutBuffer *buf);
     virtual int isLvalue();
     virtual Expression *toLvalue(Scope *sc, Expression *e);
     virtual Expression *modifiableLvalue(Scope *sc, Expression *e);
-    virtual Expression *implicitCastTo(Scope *sc, Type *t);
-    virtual MATCH implicitConvTo(Type *t);
-    virtual Expression *castTo(Scope *sc, Type *t);
+    Expression *implicitCastTo(Scope *sc, Type *t)
+    {
+        return ::implicitCastTo(this, sc, t);
+    }
+    MATCH implicitConvTo(Type *t)
+    {
+        return ::implicitConvTo(this, t);
+    }
+    Expression *castTo(Scope *sc, Type *t)
+    {
+        return ::castTo(this, sc, t);
+    }
     virtual Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
     virtual void checkEscape();
     virtual void checkEscapeRef();
@@ -182,27 +204,25 @@ public:
     Expression *checkToPointer();
     Expression *addressOf(Scope *sc);
     Expression *deref();
-    Expression *integralPromotions(Scope *sc);
 
-    Expression *toDelegate(Scope *sc, Type *t);
-
-    virtual Expression *optimize(int result, bool keepLvalue = false);
+    Expression *optimize(int result, bool keepLvalue = false)
+    {
+        return Expression_optimize(this, result, keepLvalue);
+    }
 
     // Entry point for CTFE.
     // A compile-time result is required. Give an error if not possible
-    Expression *ctfeInterpret();
+    Expression *ctfeInterpret()
+    {
+        return ::ctfeInterpret(this);
+    }
+    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue)
+    {
+        return ::interpret(this, istate, goal);
+    }
 
-    // Implementation of CTFE for this expression
-    virtual Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-
-    virtual int isConst();
+    int isConst() { return ::isConst(this); }
     virtual int isBool(int result);
-    void discardValue();
-    void useValue();
-    bool canThrow(bool mustNotThrow);
-
-    virtual Expression *doInline(InlineDoState *ids);
-    Expression *inlineCopy(Scope *sc);
 
     // Back end
     virtual elem *toElem(IRState *irs);
@@ -220,16 +240,12 @@ public:
     IntegerExp(dinteger_t value);
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     char *toChars();
     dinteger_t toInteger();
     real_t toReal();
     real_t toImaginary();
     complex_t toComplex();
-    int isConst();
     int isBool(int result);
-    MATCH implicitConvTo(Type *t);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
     Expression *toLvalue(Scope *sc, Expression *e);
     elem *toElem(IRState *irs);
@@ -242,10 +258,6 @@ class ErrorExp : public Expression
 public:
     ErrorExp();
 
-    Expression *implicitCastTo(Scope *sc, Type *t);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -258,17 +270,13 @@ public:
     RealExp(Loc loc, real_t value, Type *type);
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     char *toChars();
     dinteger_t toInteger();
     uinteger_t toUInteger();
     real_t toReal();
     real_t toImaginary();
     complex_t toComplex();
-    Expression *castTo(Scope *sc, Type *t);
-    int isConst();
     int isBool(int result);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
@@ -283,17 +291,13 @@ public:
     ComplexExp(Loc loc, complex_t value, Type *type);
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     char *toChars();
     dinteger_t toInteger();
     uinteger_t toUInteger();
     real_t toReal();
     real_t toImaginary();
     complex_t toComplex();
-    Expression *castTo(Scope *sc, Type *t);
-    int isConst();
     int isBool(int result);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
@@ -310,7 +314,6 @@ public:
     static IdentifierExp *create(Loc loc, Identifier *ident);
     Expression *semantic(Scope *sc);
     char *toChars();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
@@ -332,7 +335,6 @@ public:
     DsymbolExp(Loc loc, Dsymbol *s, bool hasOverloads = false);
     Expression *semantic(Scope *sc);
     char *toChars();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
@@ -345,14 +347,10 @@ public:
 
     ThisExp(Loc loc);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     int isBool(int result);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-
-    Expression *doInline(InlineDoState *ids);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -363,9 +361,7 @@ class SuperExp : public ThisExp
 public:
     SuperExp(Loc loc);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -378,13 +374,8 @@ public:
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
     int isBool(int result);
-    int isConst();
     StringExp *toStringExp();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
@@ -407,20 +398,15 @@ public:
     //Expression *syntaxCopy();
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     size_t length();
     StringExp *toStringExp();
     StringExp *toUTF8(Scope *sc);
-    Expression *implicitCastTo(Scope *sc, Type *t);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
     int compare(RootObject *obj);
     int isBool(int result);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     unsigned charAt(uinteger_t i);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
@@ -448,14 +434,9 @@ public:
     Expression *syntaxCopy();
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void checkEscape();
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    Expression *castTo(Scope *sc, Type *t);
     elem *toElem(IRState *irs);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -474,17 +455,11 @@ public:
     int isBool(int result);
     elem *toElem(IRState *irs);
     StringExp *toStringExp();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     Expression *implicitCastTo(Scope *sc, Type *t);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
     Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
     dt_t **toDt(dt_t **pdt);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -501,15 +476,9 @@ public:
     Expression *semantic(Scope *sc);
     int isBool(int result);
     elem *toElem(IRState *irs);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
     Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -563,17 +532,11 @@ public:
     Expression *getField(Type *type, unsigned offset);
     int getFieldIndex(Type *type, unsigned offset);
     elem *toElem(IRState *irs);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void toMangleBuffer(OutBuffer *buf);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     Expression *addDtorHook(Scope *sc);
     dt_t **toDt(dt_t **pdt);
     Symbol *toSymbol();
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -587,8 +550,6 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     int rvalue(bool allowVoid = false);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    Expression *optimize(int result, bool keepLvalue = false);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -602,7 +563,6 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     elem *toElem(IRState *irs);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -614,7 +574,6 @@ public:
 
     TemplateExp(Loc loc, TemplateDeclaration *td, FuncDeclaration *fd = NULL);
     int rvalue(bool allowVoid = false);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
@@ -638,13 +597,8 @@ public:
         Type *newtype, Expressions *arguments);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    Expression *optimize(int result, bool keepLvalue = false);
-    MATCH implicitConvTo(Type *t);
     elem *toElem(IRState *irs);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -662,7 +616,6 @@ public:
         ClassDeclaration *cd, Expressions *arguments);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -687,15 +640,8 @@ public:
 
     SymOffExp(Loc loc, Declaration *var, dinteger_t offset, bool hasOverloads = false);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     void checkEscape();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    int isConst();
     int isBool(int result);
-    Expression *doInline(InlineDoState *ids);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
 
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
@@ -710,10 +656,7 @@ public:
     static VarExp *create(Loc loc, Declaration *var, bool hasOverloads = false);
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     char *toChars();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void checkEscape();
     void checkEscapeRef();
     int checkModifiable(Scope *sc, int flag);
@@ -722,7 +665,6 @@ public:
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     dt_t **toDt(dt_t **pdt);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -736,7 +678,6 @@ public:
     OverExp(Loc loc, OverloadSet *s);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -754,17 +695,11 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     Expression *semantic(Scope *sc, Expressions *arguments);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    Expression *implicitCastTo(Scope *sc, Type *t);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
     Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
     char *toChars();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
 
-    //Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -778,11 +713,8 @@ public:
     DeclarationExp(Loc loc, Dsymbol *declaration);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -794,7 +726,6 @@ public:
     TypeidExp(Loc loc, RootObject *obj);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -810,7 +741,6 @@ public:
     Expression *isTypeX(bool (*fp)(Type *t));
     Expression *isFuncX(bool (*fp)(FuncDeclaration *f));
     Expression *isDeclX(bool (*fp)(Declaration *d));
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -819,7 +749,6 @@ class HaltExp : public Expression
 public:
     HaltExp(Loc loc);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -842,7 +771,6 @@ public:
         TOK tok2, TemplateParameters *parameters);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -857,12 +785,7 @@ public:
     UnaExp(Loc loc, TOK op, int size, Expression *e1);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     Expression *resolveLoc(Loc loc, Scope *sc);
-
-    Expression *doInline(InlineDoState *ids);
 
     virtual Expression *op_overload(Scope *sc);
     void accept(Visitor *v) { v->visit(this); }
@@ -885,20 +808,10 @@ public:
     Expression *semantic(Scope *sc);
     Expression *semanticp(Scope *sc);
     Expression *checkComplexOpAssign(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Expression *scaleFactor(Scope *sc);
     Expression *typeCombine(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
     int isunsigned();
     Expression *incompatibleTypes();
-
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    Expression *interpretCommon(InterState *istate, CtfeGoal goal, fp_t fp);
-    Expression *interpretCompareCommon(InterState *istate, CtfeGoal goal, fp2_t fp);
-    Expression *interpretAssignCommon(InterState *istate, CtfeGoal goal, fp_t fp, int post = 0);
-    Expression *interpretFourPointerRelation(InterState *istate, CtfeGoal goal);
-
-    Expression *doInline(InlineDoState *ids);
 
     Expression *op_overload(Scope *sc);
     Expression *compare_overload(Scope *sc, Identifier *id);
@@ -918,8 +831,6 @@ public:
 
     Expression *semantic(Scope *sc);
 
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-
     Expression *op_overload(Scope *sc);
 
     int isLvalue();
@@ -935,7 +846,6 @@ class CompileExp : public UnaExp
 public:
     CompileExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -944,7 +854,6 @@ class FileExp : public UnaExp
 public:
     FileExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -956,10 +865,6 @@ public:
     AssertExp(Loc loc, Expression *e, Expression *msg = NULL);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-
-    Expression *doInline(InlineDoState *ids);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -975,7 +880,6 @@ public:
     Expression *semantic(Scope *sc);
     Expression *semanticX(Scope *sc);
     Expression *semanticY(Scope *sc, int flag);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -985,7 +889,6 @@ public:
     TemplateDeclaration *td;
 
     DotTemplateExp(Loc loc, Expression *e, TemplateDeclaration *td);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1001,9 +904,6 @@ public:
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1018,7 +918,6 @@ public:
     bool findTempDecl(Scope *sc);
     Expression *semantic(Scope *sc);
     Expression *semanticY(Scope *sc, int flag);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1030,10 +929,6 @@ public:
 
     DelegateExp(Loc loc, Expression *e, FuncDeclaration *func, bool hasOverloads = false);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1046,7 +941,6 @@ public:
 
     DotTypeExp(Loc loc, Expression *e, Dsymbol *sym);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1068,16 +962,11 @@ public:
 
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *addDtorHook(Scope *sc);
-    MATCH implicitConvTo(Type *t);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1088,10 +977,6 @@ public:
     Expression *semantic(Scope *sc);
     void checkEscape();
     elem *toElem(IRState *irs);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1107,10 +992,7 @@ public:
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1120,7 +1002,6 @@ class NegExp : public UnaExp
 public:
     NegExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1140,7 +1021,6 @@ class ComExp : public UnaExp
 public:
     ComExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1151,7 +1031,6 @@ class NotExp : public UnaExp
 public:
     NotExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1161,7 +1040,6 @@ class BoolExp : public UnaExp
 public:
     BoolExp(Loc loc, Expression *e, Type *type);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1172,7 +1050,6 @@ public:
     DeleteExp(Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
     Expression *checkToBoolean(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1188,11 +1065,7 @@ public:
     CastExp(Loc loc, Expression *e, unsigned char mod);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    MATCH implicitConvTo(Type *t);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     void checkEscape();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
 
     // For operator overloading
@@ -1210,7 +1083,6 @@ public:
     VectorExp(Loc loc, Expression *e, Type *t);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
@@ -1233,15 +1105,9 @@ public:
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     int isBool(int result);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Type *toStaticArrayType();
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     elem *toElem(IRState *irs);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1250,9 +1116,6 @@ class ArrayLengthExp : public UnaExp
 public:
     ArrayLengthExp(Loc loc, Expression *e1);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
 
     static Expression *rewriteOpAssign(BinExp *exp);
@@ -1273,12 +1136,10 @@ public:
     Expression *semantic(Scope *sc);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     // For operator overloading
     Expression *op_overload(Scope *sc);
 
-    Expression *doInline(InlineDoState *ids);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1289,7 +1150,6 @@ class DotExp : public BinExp
 public:
     DotExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1305,11 +1165,7 @@ public:
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     int isBool(int result);
-    MATCH implicitConvTo(Type *t);
     Expression *addDtorHook(Scope *sc);
-    Expression *castTo(Scope *sc, Type *t);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1328,10 +1184,6 @@ public:
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    Expression *doInline(InlineDoState *ids);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1344,8 +1196,6 @@ class PostExp : public BinExp
 public:
     PostExp(TOK op, Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1357,7 +1207,6 @@ class PreExp : public UnaExp
 public:
     PreExp(TOK op, Loc loc, Expression *e);
     Expression *semantic(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1369,7 +1218,6 @@ public:
     AssignExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
     Expression *checkToBoolean(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1493,7 +1341,6 @@ class AddExp : public BinExp
 public:
     AddExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1504,7 +1351,6 @@ class MinExp : public BinExp
 public:
     MinExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1515,8 +1361,6 @@ class CatExp : public BinExp
 public:
     CatExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1527,7 +1371,6 @@ class MulExp : public BinExp
 public:
     MulExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1538,7 +1381,6 @@ class DivExp : public BinExp
 public:
     DivExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1549,7 +1391,6 @@ class ModExp : public BinExp
 public:
     ModExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1560,7 +1401,6 @@ class PowExp : public BinExp
 public:
     PowExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1571,7 +1411,6 @@ class ShlExp : public BinExp
 public:
     ShlExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1582,7 +1421,6 @@ class ShrExp : public BinExp
 public:
     ShrExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1593,7 +1431,6 @@ class UshrExp : public BinExp
 public:
     UshrExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1604,7 +1441,6 @@ class AndExp : public BinExp
 public:
     AndExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1615,8 +1451,6 @@ class OrExp : public BinExp
 public:
     OrExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    MATCH implicitConvTo(Type *t);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1627,8 +1461,6 @@ class XorExp : public BinExp
 public:
     XorExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    MATCH implicitConvTo(Type *t);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1640,8 +1472,6 @@ public:
     OrOrExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
     Expression *checkToBoolean(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1652,8 +1482,6 @@ public:
     AndAndExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
     Expression *checkToBoolean(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1663,7 +1491,6 @@ class CmpExp : public BinExp
 public:
     CmpExp(TOK op, Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     // For operator overloading
     Expression *op_overload(Scope *sc);
@@ -1677,7 +1504,6 @@ class InExp : public BinExp
 public:
     InExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1687,8 +1513,6 @@ class RemoveExp : public BinExp
 {
 public:
     RemoveExp(Loc loc, Expression *e1, Expression *e2);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1700,7 +1524,6 @@ class EqualExp : public BinExp
 public:
     EqualExp(TOK op, Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
 
     // For operator overloading
     Expression *op_overload(Scope *sc);
@@ -1716,7 +1539,6 @@ class IdentityExp : public BinExp
 public:
     IdentityExp(TOK op, Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1731,8 +1553,6 @@ public:
     CondExp(Loc loc, Expression *econd, Expression *e1, Expression *e2);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *optimize(int result, bool keepLvalue = false);
-    Expression *interpret(InterState *istate, CtfeGoal goal = ctfeNeedRvalue);
     void checkEscape();
     void checkEscapeRef();
     int checkModifiable(Scope *sc, int flag);
@@ -1740,12 +1560,7 @@ public:
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     Expression *checkToBoolean(Scope *sc);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    MATCH implicitConvTo(Type *t);
-    Expression *castTo(Scope *sc, Type *t);
     Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
-
-    Expression *doInline(InlineDoState *ids);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1759,7 +1574,6 @@ public:
     TOK subop;             // which of the derived classes this is
 
     DefaultInitExp(Loc loc, TOK subop, int size);
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1807,6 +1621,20 @@ public:
     Expression *resolveLoc(Loc loc, Scope *sc);
     void accept(Visitor *v) { v->visit(this); }
 };
+
+#ifdef IN_GCC
+
+class WrappedExp : public Expression
+{
+public:
+    elem *e1;
+
+    WrappedExp(Loc loc, elem *e1, Type *type);
+    elem *toElem(IRState *irs);
+    void accept(Visitor *v) { v->visit(this); }
+};
+
+#endif
 
 /****************************************************************/
 

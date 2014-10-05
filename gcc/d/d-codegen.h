@@ -317,15 +317,6 @@ extern IRState *current_irstate;
 
 // Various helpers that need extra state
 
-class WrappedExp : public Expression
-{
-public:
-  tree exp_node;
-  WrappedExp (Loc loc, TOK op, tree exp_node, Type *type);
-  void toCBuffer (OutBuffer *buf, HdrGenState *hgs);
-  elem *toElem (IRState *irs);
-};
-
 struct AggLayout
 {
   AggLayout (AggregateDeclaration *indecl, tree intype)

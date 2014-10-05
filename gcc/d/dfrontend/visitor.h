@@ -278,6 +278,9 @@ class PrettyFuncInitExp;
 class ClassReferenceExp;
 class VoidInitExp;
 class ThrownExceptionExp;
+#ifdef IN_GCC
+class WrappedExp;
+#endif
 
 class Visitor
 {
@@ -549,6 +552,7 @@ public:
     virtual void visit(ClassReferenceExp *e) { visit((Expression *)e); }
     virtual void visit(VoidInitExp *e) { visit((Expression *)e); }
     virtual void visit(ThrownExceptionExp *e) { visit((Expression *)e); }
+    virtual void visit(WrappedExp *e) { visit((Expression *)e); }
 };
 
 class StoppableVisitor : public Visitor

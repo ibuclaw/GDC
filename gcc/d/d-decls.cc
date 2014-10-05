@@ -94,7 +94,7 @@ Dsymbol::toImport (void)
 	  isym->Stree = decl;
 	  d_keep (decl);
 
-	  Loc loc = (m->md != NULL) ? m->md->loc : Loc (m, 1);
+	  Loc loc = (m->md != NULL) ? m->md->loc : Loc(m, 1, 0);
 	  set_decl_location (decl, loc);
 
 	  if (output_module_p (m))
@@ -391,7 +391,7 @@ FuncDeclaration::toSymbol (void)
 	  DECL_NO_INLINE_WARNING_P (fndecl) = 1;
 	}
       // Don't know what to do with this.
-      else if (flag_inline_functions && canInline (0, 1, 0))
+      else if (flag_inline_functions)
 	{
 	  DECL_DECLARED_INLINE_P (fndecl) = 1;
 	  DECL_NO_INLINE_WARNING_P (fndecl) = 1;

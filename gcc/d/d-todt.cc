@@ -1291,7 +1291,7 @@ TypeInfoVectorDeclaration::toDt (dt_t **pdt)
 void
 TypeInfoAssociativeArrayDeclaration::toDt (dt_t  **pdt)
 {
-  verify_structsize (Type::typeinfoassociativearray, 5 * Target::ptrsize);
+  verify_structsize (Type::typeinfoassociativearray, 4 * Target::ptrsize);
 
   /* Put out:
    *  void **vptr;
@@ -1305,7 +1305,6 @@ TypeInfoAssociativeArrayDeclaration::toDt (dt_t  **pdt)
   TypeAArray *tc = (TypeAArray *) tinfo;
   tc->next->getTypeInfo (NULL);
   tc->index->getTypeInfo (NULL);
-  tc->getImpl()->type->getTypeInfo (NULL);
 
   // vtbl and monitor for TypeInfo_AssociativeArray
   build_vptr_monitor (pdt, Type::typeinfoassociativearray);
@@ -1315,9 +1314,6 @@ TypeInfoAssociativeArrayDeclaration::toDt (dt_t  **pdt)
 
   // TypeInfo for index of type.
   dt_cons (pdt, build_address (tc->index->vtinfo->toSymbol()->Stree));
-
-  // TypeInfo impl;
-  dt_cons (pdt, build_address (tc->getImpl()->type->vtinfo->toSymbol()->Stree));
 }
 
 void

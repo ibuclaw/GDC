@@ -30,12 +30,6 @@
 /* used in module.c */
 extern void d_gcc_magic_module (Module *);
 
-/* used in interpret.c */
-extern Expression *d_gcc_eval_builtin (Loc, FuncDeclaration *, Expressions *);
-
-/* used in arrayop.c */
-extern int binary(const char *p , const char **tab, int high);
-
 /* used in ctfeexpr.c */
 extern Expression *d_gcc_paint_type (Expression *, Type *);
 

@@ -444,19 +444,6 @@ public:
   }
 
   //
-  void visit(DtorExpStatement *s)
-  {
-    FuncDeclaration *fd = this->irs_->func;
-    gcc_assert(fd != NULL);
-
-    // Do not call destructor if var is returned via NRVO.
-    bool nodtor = (fd->nrvo_can && fd->nrvo_var == s->var);
-
-    if (!nodtor)
-      this->visit((ExpStatement *)s);
-  }
-
-  //
   void visit(CompoundStatement *s)
   {
     if (s->statements == NULL)

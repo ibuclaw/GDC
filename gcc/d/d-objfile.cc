@@ -1114,6 +1114,10 @@ output_declaration_p (Dsymbol *dsym)
 
       if (!fd->needsCodegen())
 	return false;
+
+      // Not emitting if is implementated in the library.
+      if (fd->isArrayOp /* && isLibCallFunction(fd->ident) */)
+	return false;
     }
 
   if (flag_emit_templates == TEnone)
@@ -1556,7 +1560,7 @@ get_linemap (const Loc loc)
 
   linemap_add (line_table, LC_ENTER, 0, loc.filename, loc.linnum);
   linemap_line_start (line_table, loc.linnum, 0);
-  gcc_location = linemap_position_for_column (line_table, 0);
+  gcc_location = linemap_position_for_column (line_table, loc.charnum);
   linemap_add (line_table, LC_LEAVE, 0, NULL, 0);
 
   return gcc_location;
@@ -2200,7 +2204,7 @@ build_simple_function (const char *name, tree expr, bool static_ctor)
   TypeFunction *func_type = new TypeFunction (0, Type::tvoid, 0, LINKc);
   FuncDeclaration *func = new FuncDeclaration (mod->loc, mod->loc,
 					       Lexer::idPool (name), STCstatic, func_type);
-  func->loc = Loc (mod, 1);
+  func->loc = Loc(mod, 1, 0);
   func->linkage = func_type->linkage;
   func->parent = mod;
   func->protection = PROTprivate;
@@ -2217,7 +2221,7 @@ build_simple_function (const char *name, tree expr, bool static_ctor)
   TREE_USED (func_decl) = 1;
 
   // %% Maybe remove the identifier
-  WrappedExp *body = new WrappedExp (mod->loc, TOKcomma, expr, Type::tvoid);
+  WrappedExp *body = new WrappedExp (mod->loc, expr, Type::tvoid);
   func->fbody = new ExpStatement (mod->loc, body);
   func->toObjFile (0);
 
@@ -2240,7 +2244,7 @@ build_call_function (const char *name, vec<FuncDeclaration *> functions, bool fo
   Module *mod = current_module_decl;
   if (!mod)
     mod = d_gcc_get_output_module();
-  set_input_location (Loc (mod, 1));
+  set_input_location(Loc(mod, 1, 0));
 
   // Shouldn't front end build these?
   for (size_t i = 0; i < functions.length(); i++)

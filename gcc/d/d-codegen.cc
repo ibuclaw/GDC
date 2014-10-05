@@ -263,11 +263,6 @@ convert_expr (tree exp, Type *etype, Type *totype)
 	    // Allowed to cast to structs with same type size.
 	    result = build_vconvert (totype->toCtype(), exp);
 	  }
-	else if (tbtype->ty == Taarray)
-	  {
-	    tbtype = ((TypeAArray *) tbtype)->getImpl()->type;
-	    return convert_expr (exp, etype, tbtype);
-	  }
 	else
 	  {
 	    error ("can't convert struct %s to %s", etype->toChars(), totype->toChars());
@@ -426,11 +421,6 @@ convert_expr (tree exp, Type *etype, Type *totype)
     case Taarray:
       if (tbtype->ty == Taarray)
 	return build_vconvert (totype->toCtype(), exp);
-      else if (tbtype->ty == Tstruct)
-	{
-	  ebtype = ((TypeAArray *) ebtype)->getImpl()->type;
-	  return convert_expr (exp, ebtype, totype);
-	}
       // Can convert associative arrays to void pointers.
       else if (tbtype == Type::tvoidptr)
 	return build_vconvert (totype->toCtype(), exp);
@@ -447,9 +437,11 @@ convert_expr (tree exp, Type *etype, Type *totype)
       if (tbtype->ty == Tarray)
 	{
 	  tree ptrtype = tbtype->nextOf()->pointerTo()->toCtype();
-	  return d_array_value (totype->toCtype(), size_int (0),
-				build_nop (ptrtype, exp));
+	  return d_array_value(totype->toCtype(), size_int(0),
+			       build_nop(ptrtype, exp));
 	}
+      else if (tbtype->ty == Taarray)
+	  return build_vconvert (totype->toCtype(), exp);
       break;
 
     case Tvector:
@@ -1268,27 +1260,18 @@ get_object_method (tree thisexp, Expression *objexp, FuncDeclaration *func, Type
 // type we are building. N1 and N2 are the names of the two fields.
 
 tree
-build_two_field_type (tree t1, tree t2, Type *type, const char *n1, const char *n2)
+build_two_field_type(tree t1, tree t2, Type *type, const char *n1, const char *n2)
 {
-  tree rectype = make_node (RECORD_TYPE);
-  tree f0 = build_decl (BUILTINS_LOCATION, FIELD_DECL, get_identifier (n1), t1);
-  tree f1 = build_decl (BUILTINS_LOCATION, FIELD_DECL, get_identifier (n2), t2);
+  tree rectype = make_node(RECORD_TYPE);
+  tree f0 = build_decl(BUILTINS_LOCATION, FIELD_DECL, get_identifier(n1), t1);
+  tree f1 = build_decl(BUILTINS_LOCATION, FIELD_DECL, get_identifier(n2), t2);
 
-  DECL_CONTEXT (f0) = rectype;
-  DECL_CONTEXT (f1) = rectype;
-  TYPE_FIELDS (rectype) = chainon (f0, f1);
-  layout_type (rectype);
-
-  if (type)
-    {
-      tree ident = get_identifier (type->toChars());
-      tree stubdecl = build_decl (BUILTINS_LOCATION, TYPE_DECL, ident, rectype);
-
-      TYPE_STUB_DECL (rectype) = stubdecl;
-      TYPE_NAME (rectype) = stubdecl;
-      DECL_ARTIFICIAL (stubdecl) = 1;
-      rest_of_decl_compilation (stubdecl, 1, 0);
-    }
+  DECL_CONTEXT(f0) = rectype;
+  DECL_CONTEXT(f1) = rectype;
+  TYPE_FIELDS(rectype) = chainon(f0, f1);
+  if (type != NULL)
+    TYPE_NAME(rectype) = get_identifier(type->toChars());
+  layout_type(rectype);
 
   return rectype;
 }
@@ -3102,30 +3085,12 @@ get_framedecl (FuncDeclaration *inner, FuncDeclaration *outer)
     }
 }
 
-// Construct a WrappedExp, whose components are an EXP_NODE, which contains
-// a list of instructions in GCC to be passed through.
-
-WrappedExp::WrappedExp (Loc loc, TOK op, tree exp_node, Type *type)
-    : Expression (loc, op, sizeof (WrappedExp))
-{
-  this->exp_node = exp_node;
-  this->type = type;
-}
-
-// Write C-style representation of WrappedExp to BUF.
-
-void
-WrappedExp::toCBuffer (OutBuffer *buf, HdrGenState *hgs ATTRIBUTE_UNUSED)
-{
-  buf->printf ("<wrapped expression>");
-}
-
 // Build and return expression tree for WrappedExp.
 
 elem *
 WrappedExp::toElem (IRState *)
 {
-  return exp_node;
+  return this->e1;
 }
 
 // Write out all fields for aggregate DECL.  For classes, write
