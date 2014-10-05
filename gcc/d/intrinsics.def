@@ -1,4 +1,4 @@
-// d-intrinsics.def -- D frontend for GCC.
+// intrinsics.def -- D frontend for GCC.
 // Copyright (C) 2014 Free Software Foundation, Inc.
 
 // GCC is free software; you can redistribute it and/or modify it under
@@ -15,7 +15,7 @@
 // along with GCC; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// Definitions for the D compiler intrinsics and runtime functions.
+// Definitions for intrinsics of the D compiler.
 
 // Define all D intrinsic functions.
 // The first parameter:
@@ -31,9 +31,6 @@
 // The fifth parameter:
 //  DECO - the signature decoration of the intrinsic.
 //  Template intrinsics reserve this for the template parameter strings.
-
-#define DEF_D_INTRINSIC(CODE, ALIAS, NAME, MODULE, DECO)    \
-    DEF_INTRINSIC (INTRINSIC_ ## CODE, INTRINSIC_ ## ALIAS, NAME, MODULE, DECO)
 
 // Helper macros.
 

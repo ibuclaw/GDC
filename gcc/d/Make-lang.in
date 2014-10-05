@@ -51,7 +51,7 @@ D_DMD_H := \
     d/dfrontend/version.h d/dfrontend/visitor.h \
     d/d-dmd-gcc.h d/longdouble.h d/id.h d/verstr.h
 
-D_TREE_H = $(TREE_H) $(D_DMD_H) d/d-intrinsics.def d/d-tree.def \
+D_TREE_H = $(TREE_H) $(D_DMD_H) d/intrinsics.def d/runtime.def d/d-tree.def \
     d/d-lang.h d/d-codegen.h d/d-objfile.h d/d-irstate.h \
     d/d-dmd-gcc.h d/d-system.h d/longdouble.h coretypes.h function.h \
     $(VARRAY_H) $(SYSTEM_H) $(CONFIG_H) $(TARGET_H) $(GGC_H) \

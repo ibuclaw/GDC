@@ -2071,353 +2071,68 @@ d_assert_call (Loc loc, LibCall libcall, tree msg)
 
 
 // Our internal list of library functions.
-// Most are extern(C) - for those that are not, correct mangling must be ensured.
-// List kept in ascii collating order to allow binary search
-
-static const char *libcall_ids[LIBCALL_count] = {
-    "_D9invariant12_d_invariantFC6ObjectZv",
-    "_aaDelX", "_aaEqual",
-    "_aaGetRvalueX", "_aaGetX",
-    "_aaInX",
-    "_adCmp2", "_adEq2",
-    "_d_allocmemory", "_d_arraybounds",
-    "_d_arrayappendT", "_d_arrayappendcTX",
-    "_d_arrayappendcd", "_d_arrayappendwd",
-    "_d_arrayassign", "_d_arraycast",
-    "_d_arraycatT", "_d_arraycatnT",
-    "_d_arraycopy", "_d_arrayctor",
-    "_d_arrayliteralTX",
-    "_d_arraysetassign", "_d_arraysetctor",
-    "_d_arraysetlengthT", "_d_arraysetlengthiT",
-    "_d_assert", "_d_assert_msg",
-    "_d_assocarrayliteralTX",
-    "_d_callfinalizer", "_d_callinterfacefinalizer",
-    "_d_delarray", "_d_delarray_t", "_d_delclass",
-    "_d_delinterface", "_d_delmemory",
-    "_d_dynamic_cast", "_d_hidden_func", "_d_interface_cast",
-    "_d_newarrayT", "_d_newarrayiT",
-    "_d_newarraymTX", "_d_newarraymiTX",
-    "_d_newclass", "_d_newitemT", "_d_newitemiT",
-    "_d_switch_dstring", "_d_switch_error",
-    "_d_switch_string", "_d_switch_ustring",
-    "_d_throw", "_d_unittest", "_d_unittest_msg",
-};
 
 static FuncDeclaration *libcall_decls[LIBCALL_count];
 
-// Library functions are generated as needed.
-// This could probably be changed in the future to be
-// more like GCC builtin trees.
+// Build and return a function symbol to be used by libcall_decls.
 
-FuncDeclaration *
-get_libcall (LibCall libcall)
+static FuncDeclaration *
+get_libcall(const char *name, Type *type, int flags, int nparams, ...)
 {
-  FuncDeclaration *decl = libcall_decls[libcall];
+  // Add parameter types.
+  Parameters *args = new Parameters;
+  args->setDim(nparams);
 
-  static Type *aatype = NULL;
+  va_list ap;
+  va_start (ap, nparams);
+  for (int i = 0; i < nparams; i++)
+    (*args)[i] = new Parameter(0, va_arg(ap, Type *), NULL, NULL);
+  va_end(ap);
 
-  if (!decl)
-    {
-      Types targs;
-      Type *treturn = Type::tvoid;
-      bool varargs = false;
-      bool fnmalloc = false;
-      bool fnthrows = false;
+  // Build extern(C) function.
+  FuncDeclaration *decl = FuncDeclaration::genCfunc(args, type, name);
 
-      // Build generic AA type void*[void*]
-      if (aatype == NULL)
-	aatype = new TypeAArray (Type::tvoidptr, Type::tvoidptr);
+  // Apply flags to the decl.
+  tree t = decl->toSymbol()->Stree;
+  DECL_ARTIFICIAL(t) = 1;
 
-      switch (libcall)
-	{
-	case LIBCALL_ASSERT:
-	case LIBCALL_ARRAY_BOUNDS:
-	case LIBCALL_SWITCH_ERROR:
-	  // need to spec chararray/string because internal code passes string constants
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tuns32);
-	  fnthrows = true;
-	  break;
-
-	case LIBCALL_ASSERT_MSG:
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tuns32);
-	  fnthrows = true;
-	  break;
-
-	case LIBCALL_UNITTEST:
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tuns32);
-	  fnthrows = true;
-	  break;
-
-	case LIBCALL_UNITTEST_MSG:
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tchar->arrayOf());
-	  targs.push (Type::tuns32);
-	  fnthrows = true;
-	  break;
-
-	case LIBCALL_NEWCLASS:
-	  targs.push (Type::typeinfoclass->type->constOf());
-	  treturn = build_object_type();
-	  break;
-
-	case LIBCALL_NEWARRAYT:
-	case LIBCALL_NEWARRAYIT:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_NEWARRAYMTX:
-	case LIBCALL_NEWARRAYMITX:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tsize_t);
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_NEWITEMT:
-	case LIBCALL_NEWITEMIT:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_ALLOCMEMORY:
-	  targs.push (Type::tsize_t);
-	  treturn = Type::tvoidptr;
-	  fnmalloc = true;
-	  break;
-
-	case LIBCALL_DELCLASS:
-	case LIBCALL_DELINTERFACE:
-	  targs.push (Type::tvoidptr);
-	  break;
-
-	case LIBCALL_DELARRAY:
-	  targs.push (Type::tvoid->arrayOf()->pointerTo());
-	  break;
-
-	case LIBCALL_DELARRAYT:
-	  targs.push (Type::tvoid->arrayOf()->pointerTo());
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  break;
-
-	case LIBCALL_DELMEMORY:
-	  targs.push (Type::tvoidptr->pointerTo());
-	  break;
-
-	case LIBCALL_CALLFINALIZER:
-	case LIBCALL_CALLINTERFACEFINALIZER:
-	  targs.push (Type::tvoidptr);
-	  break;
-
-	case LIBCALL_ARRAYSETLENGTHT:
-	case LIBCALL_ARRAYSETLENGTHIT:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tvoid->arrayOf()->pointerTo());
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_DYNAMIC_CAST:
-	case LIBCALL_INTERFACE_CAST:
-	  targs.push (build_object_type());
-	  targs.push (Type::typeinfoclass->type);
-	  treturn = build_object_type();
-	  break;
-
-	case LIBCALL_ADEQ2:
-	case LIBCALL_ADCMP2:
-	  targs.push (Type::tvoid->arrayOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  treturn = Type::tint32;
-	  break;
-
-	case LIBCALL_AAEQUAL:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (aatype);
-	  targs.push (aatype);
-	  treturn = Type::tint32;
-	  break;
-
-	case LIBCALL_AAINX:
-	  targs.push (aatype);
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tvoidptr);
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_AAGETX:
-	  targs.push (aatype->pointerTo());
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tvoidptr);
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_AAGETRVALUEX:
-	  targs.push (aatype);
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tvoidptr);
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_AADELX:
-	  targs.push (aatype);
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tvoidptr);
-	  treturn = Type::tbool;
-	  break;
-
-	case LIBCALL_ARRAYCAST:
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tvoid->arrayOf());
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYCOPY:
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::tvoid->arrayOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYCATT:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tint8->arrayOf());
-	  targs.push (Type::tint8->arrayOf());
-	  treturn = Type::tint8->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYCATNT:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  // Currently 'uint', even if 64-bit
-	  targs.push (Type::tuns32);
-	  treturn = Type::tvoid->arrayOf();
-	  varargs = true;
-	  break;
-
-	case LIBCALL_ARRAYAPPENDT:
-	  targs.push (Type::dtypeinfo->type); //->constOf());
-	  targs.push (Type::tint8->arrayOf()->pointerTo());
-	  targs.push (Type::tint8->arrayOf());
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYAPPENDCTX:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tint8->arrayOf()->pointerTo());
-	  targs.push (Type::tsize_t);
-	  treturn = Type::tint8->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYAPPENDCD:
-	  targs.push (Type::tint8->arrayOf()->pointerTo());
-	  targs.push (Type::tdchar);
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYAPPENDWD:
-	  targs.push (Type::tint8->arrayOf()->pointerTo());
-	  targs.push (Type::tdchar);
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYASSIGN:
-	case LIBCALL_ARRAYCTOR:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  treturn = Type::tvoid->arrayOf();
-	  break;
-
-	case LIBCALL_ARRAYSETASSIGN:
-	case LIBCALL_ARRAYSETCTOR:
-	  targs.push (Type::tvoidptr);
-	  targs.push (Type::tvoidptr);
-	  targs.push (Type::tsize_t);
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_THROW:
-	case LIBCALL_INVARIANT:
-	  targs.push (build_object_type());
-	  break;
-
-	case LIBCALL_SWITCH_USTRING:
-	  targs.push (Type::twchar->arrayOf()->arrayOf());
-	  targs.push (Type::twchar->arrayOf());
-	  treturn = Type::tint32;
-	  break;
-
-	case LIBCALL_SWITCH_DSTRING:
-	  targs.push (Type::tdchar->arrayOf()->arrayOf());
-	  targs.push (Type::tdchar->arrayOf());
-	  treturn = Type::tint32;
-	  break;
-
-	case LIBCALL_SWITCH_STRING:
-	  targs.push (Type::tchar->arrayOf()->arrayOf());
-	  targs.push (Type::tchar->arrayOf());
-	  treturn = Type::tint32;
-	  break;
-
-	case LIBCALL_ASSOCARRAYLITERALTX:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  targs.push (Type::tvoid->arrayOf());
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_ARRAYLITERALTX:
-	  targs.push (Type::dtypeinfo->type->constOf());
-	  targs.push (Type::tsize_t);
-	  treturn = Type::tvoidptr;
-	  break;
-
-	case LIBCALL_HIDDEN_FUNC:
-	  /* Argument is an Object, but can't use that as
-	     LIBCALL_HIDDEN_FUNC is needed before the Object type is
-	     created. */
-	  targs.push (Type::tvoidptr);
-	  break;
-
-	default:
-	  gcc_unreachable();
-	}
-
-      // Add parameter types.
-      Parameters *args = new Parameters;
-      args->setDim (targs.dim);
-      for (size_t i = 0; i < targs.dim; i++)
-	(*args)[i] = new Parameter (0, targs[i], NULL, NULL);
-
-      // Build extern(C) function.
-      decl = FuncDeclaration::genCfunc (args, treturn, libcall_ids[libcall]);
-
-      TypeFunction *tf = (TypeFunction *) decl->type;
-      tf->varargs = varargs ? 1 : 0;
-      libcall_decls[libcall] = decl;
-
-      tree t = decl->toSymbol()->Stree;
-
-      // Function does not return except through catching a thrown exception.
-      if (fnthrows)
-	TREE_THIS_VOLATILE (t) = 1;
-
-      // Function performs a malloc-like operation.
-      if (fnmalloc)
-	DECL_IS_MALLOC (t) = 1;
-    }
+  // Whether the function accepts a variable list of arguments.
+  TypeFunction *tf = (TypeFunction *) decl->type;
+  tf->varargs = (flags & LCFvarargs);
+  // Whether the function does not return except through catching a thrown exception.
+  TREE_THIS_VOLATILE(t) = (flags & LCFthrows);
+  // Whether the function performs a malloc-like operation.
+  DECL_IS_MALLOC(t) = (flags & LCFmalloc);
 
   return decl;
+}
+
+// Library functions are generated as needed.
+// This could probably be changed in the future to be more like GCC builtin
+// trees, but we depend on runtime initialisation of front-end types.
+
+FuncDeclaration *
+get_libcall(LibCall libcall)
+{
+  // Build generic AA type void*[void*] for runtime.def
+  static Type *AA = NULL;
+  if (AA == NULL)
+    AA = new TypeAArray(Type::tvoidptr, Type::tvoidptr);
+
+  switch (libcall)
+    {
+#define DEF_D_RUNTIME(CODE, NAME, PARAMS, TYPE, FLAGS) \
+    case LIBCALL_ ## CODE:	\
+      libcall_decls[libcall] = get_libcall(NAME, TYPE, FLAGS, PARAMS); \
+      break;
+#include "runtime.def"
+#undef DEF_D_RUNTIME
+
+    default:
+      gcc_unreachable();
+    }
+
+  return libcall_decls[libcall];
 }
 
 // Build call to LIBCALL. N_ARGS is the number of call arguments which are
@@ -2430,9 +2145,10 @@ get_libcall (LibCall libcall)
 tree
 build_libcall (LibCall libcall, unsigned n_args, tree *args, tree force_type)
 {
-  FuncDeclaration *lib_decl = get_libcall (libcall);
-  Type *type = lib_decl->type->nextOf();
-  tree callee = build_address (lib_decl->toSymbol()->Stree);
+  // Build the call expression to the runtime function.
+  FuncDeclaration *decl = get_libcall(libcall);
+  Type *type = decl->type->nextOf();
+  tree callee = build_address (decl->toSymbol()->Stree);
   tree arg_list = NULL_TREE;
 
   for (int i = n_args - 1; i >= 0; i--)
@@ -2484,9 +2200,9 @@ d_build_call_nary (tree callee, int n_args, ...)
 
 enum intrinsic_code
 {
-#define DEF_INTRINSIC(CODE, A, N, M, D) CODE,
-#include "d-intrinsics.def"
-#undef DEF_INTRINSIC
+#define DEF_D_INTRINSIC(CODE, A, N, M, D) INTRINSIC_ ## CODE,
+#include "intrinsics.def"
+#undef DEF_D_INTRINSIC
   INTRINSIC_LAST
 };
 
@@ -2509,9 +2225,10 @@ struct intrinsic_decl
 
 static const intrinsic_decl intrinsic_decls[] =
 {
-#define DEF_INTRINSIC(CODE, ALIAS, NAME, MODULE, DECO) { ALIAS, NAME, MODULE, DECO },
-#include "d-intrinsics.def"
-#undef DEF_INTRINSIC
+#define DEF_D_INTRINSIC(CODE, ALIAS, NAME, MODULE, DECO) \
+    { INTRINSIC_ ## ALIAS, NAME, MODULE, DECO },
+#include "intrinsics.def"
+#undef DEF_D_INTRINSIC
 };
 
 // Call an fold the intrinsic call CALLEE with the argument ARG
@@ -2670,21 +2387,6 @@ maybe_set_intrinsic (FuncDeclaration *decl)
 {
   if (!decl->ident || decl->builtin == BUILTINyes)
     return;
-
-  // It's a runtime library function, add to libcall_decls.
-  LibCall libcall = (LibCall) binary (decl->ident->string, libcall_ids, LIBCALL_count);
-  if (libcall != LIBCALL_NONE)
-    {
-      if (libcall_decls[libcall] == decl)
-	return;
-
-      // This should have been done either by the front-end or get_libcall.
-      TypeFunction *tf = (TypeFunction *) decl->type;
-      gcc_assert (tf->parameters != NULL);
-
-      libcall_decls[libcall] = decl;
-      return;
-    }
 
   // Check if it's a compiler intrinsic.  We only require that any
   // internally recognised intrinsics are declared in a module with
