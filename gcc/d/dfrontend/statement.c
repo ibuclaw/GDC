@@ -4775,6 +4775,112 @@ int AsmStatement::blockExit(bool mustNotThrow)
     return BEfallthru | BEthrow | BEreturn | BEgoto | BEhalt;
 }
 
+#ifdef IN_GCC
+/************************ ExtAsmStatement ***************************************/
+
+ExtAsmStatement::ExtAsmStatement(Loc loc, Expression *insn,
+                                 Expressions *args, Identifiers *names,
+                                 Expressions *constraints, int outputargs,
+                                 Expressions *clobbers, Identifiers *labels)
+        : Statement(loc)
+{
+    this->insn = insn;
+    this->args = args;
+    this->names = names;
+    this->constraints = constraints;
+    this->outputargs = outputargs;
+    this->clobbers = clobbers;
+    this->labels = labels;
+    this->gotos = NULL;
+}
+
+Statement *ExtAsmStatement::syntaxCopy()
+{
+    Expressions *c_args = Expression::arraySyntaxCopy(args);
+    Expressions *c_constraints = Expression::arraySyntaxCopy(constraints);
+    Expressions *c_clobbers = Expression::arraySyntaxCopy(clobbers);
+
+    return new ExtAsmStatement(loc, insn->syntaxCopy(), c_args, names,
+                               c_constraints, outputargs, c_clobbers, labels);
+}
+
+Statement *ExtAsmStatement::semantic(Scope *sc)
+{
+    // Fold the instruction template string.
+    insn = insn->semantic(sc);
+    insn->optimize(WANTvalue);
+
+    if (sc->func)
+    {
+        if (sc->func->setUnsafe())
+            error("extended assembler not allowed in @safe function %s",
+                  sc->func->toChars());
+    }
+
+    if (insn->op != TOKstring || ((StringExp *) insn)->sz != 1)
+        error("instruction template must be a constant char string");
+
+    // Analyse all input and output operands.
+    if (args)
+    {
+        for (size_t i = 0; i < args->dim; i++)
+        {
+            Expression *e = (*args)[i];
+            e = e->semantic(sc);
+            if (i < outputargs)
+                e = e->modifiableLvalue(sc, NULL);
+            else
+                e = e->optimize(WANTvalue);
+            (*args)[i] = e;
+
+            e = (*constraints)[i];
+            e = e->semantic(sc);
+            e = e->optimize(WANTvalue);
+            if (e->op != TOKstring || ((StringExp *) e)->sz != 1)
+                error ("constraint must be a constant char string");
+            (*constraints)[i] = e;
+        }
+    }
+
+    // Fold all clobbers.
+    if (clobbers)
+    {
+        for (size_t i = 0; i < clobbers->dim; i++)
+        {
+            Expression *e = (*clobbers)[i];
+            e = e->semantic(sc);
+            e = e->optimize(WANTvalue);
+            if (e->op != TOKstring || ((StringExp *) e)->sz != 1)
+                error("clobber specification must be a constant char string");
+            (*clobbers)[i] = e;
+        }
+    }
+
+    // Analyse all goto labels.
+    if (labels)
+    {
+        for (size_t i = 0; i < labels->dim; i++)
+        {
+            Identifier *ident = (*labels)[i];
+            GotoStatement *s = new GotoStatement(loc, ident);
+            if (!gotos)
+                gotos = new GotoStatements();
+            gotos->push(s);
+            s->semantic(sc);
+        }
+    }
+
+    return this;
+}
+
+int ExtAsmStatement::blockExit(bool mustNotThrow)
+{
+    // Assume the worst
+    return BEfallthru | BEthrow | BEreturn | BEgoto | BEhalt;
+}
+
+#endif
+
 /************************ ImportStatement ***************************************/
 
 ImportStatement::ImportStatement(Loc loc, Dsymbols *imports)

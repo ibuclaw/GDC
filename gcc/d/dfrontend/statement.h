@@ -803,15 +803,17 @@ class ExtAsmStatement : public Statement
 {
 public:
     Expression *insn;
-    Expressions *args;            
-    Identifiers *names;         // of NULL or Identifier*
-    Expressions *constraints;   // of StringExp*
+    Expressions *args;
+    Identifiers *names;
+    Expressions *constraints;   // Array of StringExp's
     unsigned outputargs;
-    Expressions *clobbers;      // of StringExp*
+    Expressions *clobbers;      // Array of StringExp's
+    Identifiers *labels;
+    GotoStatements *gotos;
 
     ExtAsmStatement(Loc loc, Expression *insn, Expressions *args,
-		    Identifiers *names, Expressions *constraints,
-		    int outputargs, Expressions *clobbers);
+                    Identifiers *names, Expressions *constraints,
+                    int outputargs, Expressions *clobbers, Identifiers *labels);
     Statement *syntaxCopy();
     Statement *semantic(Scope *sc);
     int blockExit(bool mustNotThrow);

@@ -120,6 +120,9 @@ public:
     Statement *parseStatement(int flags, const utf8_t** endPtr = NULL);
 #ifdef IN_GCC
     Statement *parseExtAsm();
+    int parseExtAsmOperands(Expressions *args, Identifiers *names, Expressions *constraints);
+    Expressions *parseExtAsmClobbers();
+    Identifiers *parseExtAsmGotoLabels();
 #endif
     Initializer *parseInitializer();
     Expression *parseDefaultInitExp();
