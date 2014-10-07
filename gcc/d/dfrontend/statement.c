@@ -1288,7 +1288,7 @@ Statement *ForeachStatement::semantic(Scope *sc)
     if (func->fes)
         func = func->fes->func;
 
-    if (!inferAggregate(sc, sapply))
+    if (!inferAggregate(this, sc, sapply))
     {
         error("invalid foreach aggregate %s", aggr->toChars());
     Lerror:
@@ -1297,7 +1297,7 @@ Statement *ForeachStatement::semantic(Scope *sc)
 
     /* Check for inference errors
      */
-    if (!inferApplyArgTypes(sc, sapply))
+    if (!inferApplyArgTypes(this, sc, sapply))
     {
         //printf("dim = %d, arguments->dim = %d\n", dim, arguments->dim);
         error("cannot uniquely infer foreach argument types");
@@ -2275,7 +2275,7 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
         else
         {
             AddExp ea(loc, lwr, upr);
-            Expression *e = ea.typeCombine(sc);
+            Expression *e = typeCombine(&ea, sc);
             arg->type = ea.type;
             lwr = ea.e1;
             upr = ea.e2;
@@ -3345,9 +3345,9 @@ Statement *ReturnStatement::semantic(Scope *sc)
 
         FuncLiteralDeclaration *fld = fd->isFuncLiteralDeclaration();
         if (tret)
-            exp = exp->inferType(tbret);
+            exp = inferType(exp, tbret);
         else if (fld && fld->treq)
-            exp = exp->inferType(fld->treq->nextOf()->nextOf());
+            exp = inferType(exp, fld->treq->nextOf()->nextOf());
         exp = exp->semantic(sc);
         exp = resolveProperties(sc, exp);
         if (!exp->rvalue(true)) // don't make error for void expression
@@ -4051,7 +4051,7 @@ Statement *WithStatement::semantic(Scope *sc)
                 exp = new CommaExp(loc, new DeclarationExp(loc, wthis), new VarExp(loc, wthis));
                 exp = exp->semantic(sc);
             }
-            Expression *e = exp->addressOf(sc);
+            Expression *e = exp->addressOf();
             init = new ExpInitializer(loc, e);
             wthis = new VarDeclaration(loc, e->type, Id::withSym, init);
             wthis->semantic(sc);

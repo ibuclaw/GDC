@@ -370,23 +370,42 @@ TypeTuple *toArgTypes(Type *)
   return new TypeTuple();
 }
 
-// Determine if function is a builtin one that we can
-// evaluate at compile time.
+// Perform the "inline copying" of a default argument E for a function parameter.
+
+Expression *
+inlineCopy(Expression *e, Scope *)
+{
+  return e->copy();
+}
+
+// Determine return style of function - whether in registers or through a
+// hidden pointer to the caller's stack.
+
+RET
+retStyle(TypeFunction *)
+{
+  // Need the backend type to determine this, but this is called from the
+  // front end before semantic processing is finished.  An accurate value
+  // is not currently needed anyway.
+  return RETstack;
+}
+
+// Determine if function is a builtin one that we can evaluate at compile time.
 
 BUILTIN
-FuncDeclaration::isBuiltin()
+isBuiltin(FuncDeclaration *fd)
 {
-  if (this->builtin != BUILTINunknown)
-    return this->builtin;
+  if (fd->builtin != BUILTINunknown)
+    return fd->builtin;
 
-  this->builtin = BUILTINno;
+  fd->builtin = BUILTINno;
 
   // Intrinsics have no function body.
-  if (this->fbody)
+  if (fd->fbody)
     return BUILTINno;
 
-  maybe_set_intrinsic(this);
-  return this->builtin;
+  maybe_set_intrinsic(fd);
+  return fd->builtin;
 }
 
 // Evaluate builtin D function FD whose argument list is ARGUMENTS.

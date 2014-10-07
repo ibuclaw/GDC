@@ -23,9 +23,6 @@
 #include "declaration.h"
 #include "aggregate.h"
 
-extern FuncDeclaration *search_toHash(StructDeclaration *sd);
-extern FuncDeclaration *search_toString(StructDeclaration *sd);
-
 
 /*******************************************
  * Get a canonicalized form of the TypeInfo for use with the internal
@@ -72,7 +69,7 @@ Type::getInternalTypeInfo (Scope *sc)
 	  internalTI[t->ty] = tid;
 	}
       e = VarExp::create (Loc(), tid);
-      e = e->addressOf (sc);
+      e = e->addressOf();
       // do this so we don't get redundant dereference
       e->type = tid->type;
       return e;
@@ -80,7 +77,7 @@ Type::getInternalTypeInfo (Scope *sc)
     default:
       break;
     }
-  return t->getTypeInfo (sc);
+  return t->getTypeInfo(sc);
 }
 
 
@@ -88,16 +85,16 @@ Type::getInternalTypeInfo (Scope *sc)
  * Get the exact TypeInfo.
  */
 
-Expression *
-Type::getTypeInfo (Scope *sc)
+void
+Type::genTypeInfo(Scope *sc)
 {
   if (!Type::dtypeinfo)
     {
-      error (Loc(), "TypeInfo not found. object.d may be incorrectly installed or corrupt");
+      error(Loc(), "TypeInfo not found. object.d may be incorrectly installed or corrupt");
       fatal();
     }
 
-  gcc_assert (ty != Terror);
+  gcc_assert(ty != Terror);
 
   // do this since not all Type's are merge'd
   Type *t = merge2();
@@ -105,17 +102,17 @@ Type::getTypeInfo (Scope *sc)
     {
       // does both 'shared' and 'shared const'
       if (t->isShared())
-	t->vtinfo = TypeInfoSharedDeclaration::create (t);
+	t->vtinfo = TypeInfoSharedDeclaration::create(t);
       else if (t->isConst())
-	t->vtinfo = TypeInfoConstDeclaration::create (t);
+	t->vtinfo = TypeInfoConstDeclaration::create(t);
       else if (t->isImmutable())
-	t->vtinfo = TypeInfoInvariantDeclaration::create (t);
+	t->vtinfo = TypeInfoInvariantDeclaration::create(t);
       else if (t->isWild())
-	t->vtinfo = TypeInfoWildDeclaration::create (t);
+	t->vtinfo = TypeInfoWildDeclaration::create(t);
       else
 	t->vtinfo = t->getTypeInfoDeclaration();
 
-      gcc_assert (t->vtinfo);
+      gcc_assert(t->vtinfo);
       vtinfo = t->vtinfo;
 
       /* If this has a custom implementation in std/typeinfo, then
@@ -127,36 +124,33 @@ Type::getTypeInfo (Scope *sc)
 	    {
 	      // Find module that will go all the way to an object file
 	      Module *m = sc->module->importedFrom;
-	      m->members->push (t->vtinfo);
-
-	      if (ty == Tstruct)
-		{
-		  StructDeclaration *sd = ((TypeStruct *) this)->sym;
-
-		  if (((sd->xeq && sd->xeq != sd->xerreq)
-		       || (sd->xcmp && sd->xcmp != sd->xerrcmp)
-		       || search_toHash (sd) || search_toString (sd))
-		      && sd->inNonRoot())
-		    Module::addDeferredSemantic3 (sd);
-		}
+	      m->members->push(t->vtinfo);
+	      semanticTypeInfo(sc, t);
 	    }
 	  else
-	    t->vtinfo->toObjFile (0);
+	    t->vtinfo->toObjFile(0);
 	}
     }
   // Types aren't merged, but we can share the vtinfo's
   if (!vtinfo)
     vtinfo = t->vtinfo;
 
-  Expression *e = VarExp::create (Loc(), t->vtinfo);
-  e = e->addressOf (sc);
+  gcc_assert(vtinfo != NULL);
+}
+
+Expression *
+Type::getTypeInfo(Scope *sc)
+{
+  this->genTypeInfo(sc);
+  Expression *e = VarExp::create(Loc(), this->vtinfo);
+  e = e->addressOf();
   // do this so we don't get redundant dereference
-  e->type = t->vtinfo->type;
+  e->type = this->vtinfo->type;
   return e;
 }
 
 TypeInfoDeclaration *
-Type::getTypeInfoDeclaration (void)
+Type::getTypeInfoDeclaration(void)
 {
   return TypeInfoDeclaration::create (this, 0);
 }
@@ -298,7 +292,7 @@ createTypeInfoArray (Scope *sc, Expression *exps[], size_t dim)
       (*args)[i] = arg;
     }
   TypeTuple *tup = TypeTuple::create (args);
-  Expression *e = tup->getTypeInfo (sc);
+  Expression *e = tup->getTypeInfo(sc);
   e = e->optimize (WANTvalue);
   gcc_assert (e->op == TOKsymoff);
 

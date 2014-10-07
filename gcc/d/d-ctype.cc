@@ -315,12 +315,6 @@ TypeStruct::toCtype (void)
   return ctype;
 }
 
-Symbol *
-TypeClass::toSymbol (void)
-{
-  return sym->toSymbol();
-}
-
 type *
 TypeFunction::toCtype (void)
 {
@@ -405,19 +399,6 @@ TypeFunction::toCtype (void)
     }
 
   return ctype;
-}
-
-RET
-TypeFunction::retStyle (void)
-{
-  /* Return by reference or pointer. */
-  if (isref || next->ty == Tclass || next->ty == Tpointer)
-    return RETregs;
-
-  /* Need the ctype to determine this, but this is called from
-     the front end before semantic processing is finished.  An
-     accurate value is not currently needed anyway. */
-  return RETstack;
 }
 
 type *
@@ -655,26 +636,5 @@ TypeClass::toCtype (void)
     }
 
   return ctype;
-}
-
-
-// These are not used for code generation in glue.
-
-Symbol *
-Type::toSymbol (void)
-{
-  return NULL;
-}
-
-unsigned
-Type::totym (void)
-{
-  return 0;
-}
-
-unsigned
-TypeFunction::totym (void)
-{
-  return 0;
 }
 

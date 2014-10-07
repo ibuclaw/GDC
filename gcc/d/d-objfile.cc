@@ -192,7 +192,7 @@ StructDeclaration::toObjFile (int)
     toDebug();
 
   // Generate TypeInfo
-  type->getTypeInfo (NULL);
+  type->genTypeInfo(NULL);
 
   // Generate static initialiser
   toInitializer();
@@ -251,7 +251,7 @@ ClassDeclaration::toObjFile (int)
   d_finish_symbol (sinit);
 
   // Put out the TypeInfo
-  type->getTypeInfo (NULL);
+  type->genTypeInfo(NULL);
 
   // must be ClassInfo.size
   size_t offset = CLASSINFO_SIZE;
@@ -602,7 +602,7 @@ InterfaceDeclaration::toObjFile (int)
   toSymbol();
 
   // Put out the TypeInfo
-  type->getTypeInfo (NULL);
+  type->genTypeInfo(NULL);
   type->vtinfo->toObjFile (0);
 
   /* Put out the ClassInfo.
@@ -731,7 +731,7 @@ EnumDeclaration::toObjFile (int)
     toDebug();
 
   // Generate TypeInfo
-  type->getTypeInfo (NULL);
+  type->genTypeInfo(NULL);
 
   TypeEnum *tc = (TypeEnum *) type;
   if (tc->sym->members && !type->isZeroInit())
@@ -856,7 +856,7 @@ TypedefDeclaration::toObjFile (int)
     toDebug();
 
   // Generate TypeInfo
-  type->getTypeInfo (NULL);
+  type->genTypeInfo(NULL);
 
   TypeTypedef *tc = (TypeTypedef *) type;
   if (tc->sym->init && !type->isZeroInit())
@@ -1264,7 +1264,7 @@ FuncDeclaration::toObjFile (int)
     }
 
   // May change irs->sthis.
-  this->buildClosure (irs);
+  build_closure(this, irs);
 
   if (vresult)
     build_local_var (vresult, this);
@@ -1385,77 +1385,7 @@ FuncDeclaration::toObjFile (int)
   irs->endFunction();
 }
 
-
-// Closures are implemented by taking the local variables that
-// need to survive the scope of the function, and copying them
-// into a gc allocated chuck of memory. That chunk, called the
-// closure here, is inserted into the linked list of stack
-// frames instead of the usual stack frame.
-
-// If a closure is not required, but FUNC still needs a frame to lower
-// nested refs, then instead build custom static chain decl on stack.
-
-void
-FuncDeclaration::buildClosure (IRState *irs)
-{
-  FuncFrameInfo *ffi = get_frameinfo (this);
-
-  if (!ffi->creates_frame)
-    return;
-
-  tree type = build_frame_type (this);
-  gcc_assert(COMPLETE_TYPE_P (type));
-
-  tree decl, decl_ref;
-
-  if (ffi->is_closure)
-    {
-      decl = build_local_temp (build_pointer_type (type));
-      DECL_NAME (decl) = get_identifier ("__closptr");
-      decl_ref = build_deref (decl);
-
-      // Allocate memory for closure.
-      tree arg = convert (Type::tsize_t->toCtype(),
-			  TYPE_SIZE_UNIT (type));
-      tree init = build_libcall (LIBCALL_ALLOCMEMORY, 1, &arg);
-
-      DECL_INITIAL (decl) = build_nop (TREE_TYPE (decl), init);
-    }
-  else
-    {
-      decl = build_local_temp (type);
-      DECL_NAME (decl) = get_identifier ("__frame");
-      decl_ref = decl;
-    }
-
-  DECL_IGNORED_P (decl) = 0;
-  expand_decl (decl);
-
-  // Set the first entry to the parent closure/frame, if any.
-  tree chain_field = component_ref (decl_ref, TYPE_FIELDS (type));
-  tree chain_expr = vmodify_expr (chain_field, irs->sthis);
-  irs->addExp (chain_expr);
-
-  // Copy parameters that are referenced nonlocally.
-  for (size_t i = 0; i < closureVars.dim; i++)
-    {
-      VarDeclaration *v = closureVars[i];
-
-      if (!v->isParameter())
-	continue;
-
-      Symbol *vsym = v->toSymbol();
-
-      tree field = component_ref (decl_ref, vsym->SframeField);
-      tree expr = vmodify_expr (field, vsym->Stree);
-      irs->addExp (expr);
-    }
-
-  if (!ffi->is_closure)
-    decl = build_address (decl);
-
-  irs->sthis = decl;
-}
+//
 
 void
 Module::genobjfile (int)

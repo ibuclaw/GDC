@@ -442,6 +442,8 @@ convert_expr (tree exp, Type *etype, Type *totype)
 	}
       else if (tbtype->ty == Taarray)
 	  return build_vconvert (totype->toCtype(), exp);
+      else if (tbtype->ty == Tdelegate)
+	  return build_delegate_cst(exp, null_pointer_node, totype);
       break;
 
     case Tvector:
@@ -1049,24 +1051,6 @@ get_array_length (tree exp, Type *type)
       error ("can't determine the length of a %s", type->toChars());
       return error_mark_node;
     }
-}
-
-// Return TRUE if binary expression EXP is an unhandled array operation,
-// in which case we error that it is not implemented.
-
-bool
-unhandled_arrayop_p (BinExp *exp)
-{
-  TY ty1 = exp->e1->type->toBasetype()->ty;
-  TY ty2 = exp->e2->type->toBasetype()->ty;
-
-  if ((ty1 == Tarray || ty1 == Tsarray
-       || ty2 == Tarray || ty2 == Tsarray))
-    {
-      exp->error ("Array operation %s not implemented", exp->toChars());
-      return true;
-    }
-  return false;
 }
 
 // Create BINFO for a ClassDeclaration's inheritance tree.
@@ -1744,6 +1728,51 @@ build_binary_op (tree_code code, tree type, tree arg0, tree arg1)
     }
 
   return d_convert (type, t);
+}
+
+// Build a binary expression of code CODE, assigning the result into E1.
+
+tree
+build_binop_assignment(tree_code code, Expression *e1, Expression *e2)
+{
+  // Skip casts for lhs assignment.
+  Expression *e1b = e1;
+  while (e1b->op == TOKcast)
+    {
+      CastExp *ce = (CastExp *) e1b;
+      gcc_assert(d_types_same(ce->type, ce->to));
+      e1b = ce->e1;
+    }
+
+  // Prevent multiple evaluations of LHS, but watch out!
+  // The LHS expression could be an assignment, to which
+  // it's operation gets lost during gimplification.
+  tree lexpr = NULL_TREE;
+  tree lhs;
+
+  if (e1b->op == TOKcomma)
+    {
+      CommaExp *ce = (CommaExp *) e1b;
+      lexpr = ce->e1->toElem(current_irstate);
+      lhs = ce->e2->toElem(current_irstate);
+    }
+  else
+    lhs = e1b->toElem(current_irstate);
+
+  tree rhs = e2->toElem(current_irstate);
+
+  // Build assignment expression. Stabilize lhs for assignment.
+  lhs = stabilize_reference(lhs);
+
+  rhs = build_binary_op(code, e1->type->toCtype(),
+			convert_expr(lhs, e1b->type, e1->type), rhs);
+
+  tree expr = modify_expr(lhs, convert_expr(rhs, e1->type, e1b->type));
+
+  if (lexpr)
+    expr = compound_expr(lexpr, expr);
+
+  return expr;
 }
 
 // Builds an array bounds checking condition, returning INDEX if true,
@@ -2949,11 +2978,81 @@ build_frame_type (FuncDeclaration *func)
   return frame_rec_type;
 }
 
+// Closures are implemented by taking the local variables that
+// need to survive the scope of the function, and copying them
+// into a gc allocated chuck of memory. That chunk, called the
+// closure here, is inserted into the linked list of stack
+// frames instead of the usual stack frame.
+
+// If a closure is not required, but FD still needs a frame to lower
+// nested refs, then instead build custom static chain decl on stack.
+
+void
+build_closure(FuncDeclaration *fd, IRState *irs)
+{
+  FuncFrameInfo *ffi = get_frameinfo(fd);
+
+  if (!ffi->creates_frame)
+    return;
+
+  tree type = build_frame_type(fd);
+  gcc_assert(COMPLETE_TYPE_P(type));
+
+  tree decl, decl_ref;
+
+  if (ffi->is_closure)
+    {
+      decl = build_local_temp(build_pointer_type(type));
+      DECL_NAME(decl) = get_identifier("__closptr");
+      decl_ref = build_deref(decl);
+
+      // Allocate memory for closure.
+      tree arg = convert(Type::tsize_t->toCtype(), TYPE_SIZE_UNIT(type));
+      tree init = build_libcall(LIBCALL_ALLOCMEMORY, 1, &arg);
+
+      DECL_INITIAL(decl) = build_nop(TREE_TYPE(decl), init);
+    }
+  else
+    {
+      decl = build_local_temp(type);
+      DECL_NAME(decl) = get_identifier("__frame");
+      decl_ref = decl;
+    }
+
+  DECL_IGNORED_P(decl) = 0;
+  expand_decl(decl);
+
+  // Set the first entry to the parent closure/frame, if any.
+  tree chain_field = component_ref(decl_ref, TYPE_FIELDS(type));
+  tree chain_expr = vmodify_expr(chain_field, irs->sthis);
+  irs->addExp(chain_expr);
+
+  // Copy parameters that are referenced nonlocally.
+  for (size_t i = 0; i < fd->closureVars.dim; i++)
+    {
+      VarDeclaration *v = fd->closureVars[i];
+
+      if (!v->isParameter())
+	continue;
+
+      Symbol *vsym = v->toSymbol();
+
+      tree field = component_ref (decl_ref, vsym->SframeField);
+      tree expr = vmodify_expr (field, vsym->Stree);
+      irs->addExp (expr);
+    }
+
+  if (!ffi->is_closure)
+    decl = build_address (decl);
+
+  irs->sthis = decl;
+}
+
 // Return the frame of FD.  This could be a static chain or a closure
 // passed via the hidden 'this' pointer.
 
 FuncFrameInfo *
-get_frameinfo (FuncDeclaration *fd)
+get_frameinfo(FuncDeclaration *fd)
 {
   Symbol *fds = fd->toSymbol();
   if (fds->frameInfo)

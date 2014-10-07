@@ -422,18 +422,6 @@ FuncDeclaration::toSymbol (void)
       if (storage_class & STCfinal)
 	DECL_FINAL_P (fndecl) = 1;
 
-      // Assert contracts in functions cause implicit side effects that could
-      // cause wrong codegen if pure/nothrow is thrown in the equation.
-      if (!global.params.useAssert)
-	{
-	  // Cannot mark as pure as in 'no side effects' if the function either
-	  // returns by ref, or has an internal state 'this'.
-	  // Note, pure D functions don't imply nothrow.
-	  if (isPure() == PUREstrong && vthis == NULL
-	      && ftype->isnothrow && ftype->retStyle() == RETstack)
-	    DECL_PURE_P (fndecl) = 1;
-	}
-
 #if TARGET_DLLIMPORT_DECL_ATTRIBUTES
       // Have to test for import first
       if (isImportedSymbol())
@@ -891,36 +879,6 @@ Module::toModuleArray (void)
 
 Symbol *
 TypeAArray::aaGetSymbol (const char *, int)
-{
-  return 0;
-}
-
-int
-Dsymbol::cvMember (unsigned char *)
-{
-  return 0;
-}
-
-int
-EnumDeclaration::cvMember (unsigned char *)
-{
-  return 0;
-}
-
-int
-FuncDeclaration::cvMember (unsigned char *)
-{
-  return 0;
-}
-
-int
-VarDeclaration::cvMember (unsigned char *)
-{
-  return 0;
-}
-
-int
-TypedefDeclaration::cvMember (unsigned char *)
 {
   return 0;
 }

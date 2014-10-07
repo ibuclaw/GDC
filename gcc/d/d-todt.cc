@@ -27,9 +27,6 @@
 
 #include "dfrontend/target.h"
 
-extern FuncDeclaration *search_toHash(StructDeclaration *sd);
-extern FuncDeclaration *search_toString(StructDeclaration *sd);
-
 
 // Append VAL to constructor PDT.  Create a new constructor
 // of generic type if PDT is not already pointing to one.
@@ -1037,7 +1034,7 @@ TypeInfoConstDeclaration::toDt (dt_t **pdt)
    */
   Type *tm = tinfo->mutableOf();
   tm = tm->merge();
-  tm->getTypeInfo (NULL);
+  tm->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Const
   build_vptr_monitor (pdt, Type::typeinfoconst);
@@ -1058,7 +1055,7 @@ TypeInfoInvariantDeclaration::toDt (dt_t **pdt)
    */
   Type *tm = tinfo->mutableOf();
   tm = tm->merge();
-  tm->getTypeInfo (NULL);
+  tm->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Invariant
   build_vptr_monitor (pdt, Type::typeinfoinvariant);
@@ -1079,7 +1076,7 @@ TypeInfoSharedDeclaration::toDt (dt_t **pdt)
    */
   Type *tm = tinfo->unSharedOf();
   tm = tm->merge();
-  tm->getTypeInfo (NULL);
+  tm->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Shared
   build_vptr_monitor (pdt, Type::typeinfoshared);
@@ -1100,7 +1097,7 @@ TypeInfoWildDeclaration::toDt (dt_t **pdt)
    */
   Type *tm = tinfo->mutableOf();
   tm = tm->merge();
-  tm->getTypeInfo (NULL);
+  tm->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Wild
   build_vptr_monitor (pdt, Type::typeinfowild);
@@ -1127,7 +1124,7 @@ TypeInfoTypedefDeclaration::toDt (dt_t **pdt)
   TypedefDeclaration *sd = ((TypeTypedef *) tinfo)->sym;
   sd->basetype = sd->basetype->merge();
   // Generate vtinfo.
-  sd->basetype->getTypeInfo (NULL);
+  sd->basetype->genTypeInfo(NULL);
   gcc_assert (sd->basetype->vtinfo);
 
   // vtbl and monitor for TypeInfo_Typedef
@@ -1173,7 +1170,7 @@ TypeInfoEnumDeclaration::toDt (dt_t **pdt)
   // TypeInfo for enum members.
   if (sd->memtype)
     {
-      sd->memtype->getTypeInfo (NULL);
+      sd->memtype->genTypeInfo(NULL);
       dt_cons (pdt, build_address (sd->memtype->vtinfo->toSymbol()->Stree));
     }
   else
@@ -1209,7 +1206,7 @@ TypeInfoPointerDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->ty == Tpointer);
 
   TypePointer *tc = (TypePointer *) tinfo;
-  tc->next->getTypeInfo (NULL);
+  tc->next->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Pointer
   build_vptr_monitor (pdt, Type::typeinfopointer);
@@ -1231,7 +1228,7 @@ TypeInfoArrayDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->ty == Tarray);
 
   TypeDArray *tc = (TypeDArray *) tinfo;
-  tc->next->getTypeInfo (NULL);
+  tc->next->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Array
   build_vptr_monitor (pdt, Type::typeinfoarray);
@@ -1254,7 +1251,7 @@ TypeInfoStaticArrayDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->ty == Tsarray);
 
   TypeSArray *tc = (TypeSArray *) tinfo;
-  tc->next->getTypeInfo (NULL);
+  tc->next->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_StaticArray
   build_vptr_monitor (pdt, Type::typeinfostaticarray);
@@ -1279,7 +1276,7 @@ TypeInfoVectorDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->ty == Tvector);
 
   TypeVector *tc = (TypeVector *) tinfo;
-  tc->basetype->getTypeInfo (NULL);
+  tc->basetype->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Vector
   build_vptr_monitor (pdt, Type::typeinfovector);
@@ -1303,8 +1300,8 @@ TypeInfoAssociativeArrayDeclaration::toDt (dt_t  **pdt)
   gcc_assert (tinfo->ty == Taarray);
 
   TypeAArray *tc = (TypeAArray *) tinfo;
-  tc->next->getTypeInfo (NULL);
-  tc->index->getTypeInfo (NULL);
+  tc->next->genTypeInfo(NULL);
+  tc->index->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_AssociativeArray
   build_vptr_monitor (pdt, Type::typeinfoassociativearray);
@@ -1331,7 +1328,7 @@ TypeInfoFunctionDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->deco);
 
   TypeFunction *tc = (TypeFunction *) tinfo;
-  tc->next->getTypeInfo (NULL);
+  tc->next->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Function
   build_vptr_monitor (pdt, Type::typeinfofunction);
@@ -1358,7 +1355,7 @@ TypeInfoDelegateDeclaration::toDt (dt_t **pdt)
   gcc_assert (tinfo->deco);
 
   TypeDelegate *tc = (TypeDelegate *) tinfo;
-  tc->next->nextOf()->getTypeInfo (NULL);
+  tc->next->nextOf()->genTypeInfo(NULL);
 
   // vtbl and monitor for TypeInfo_Delegate
   build_vptr_monitor (pdt, Type::typeinfodelegate);
@@ -1480,7 +1477,7 @@ TypeInfoStructDeclaration::toDt (dt_t **pdt)
       // TypeInfo m_arg1;
       if (sd->arg1type)
 	{
-	  sd->arg1type->getTypeInfo (NULL);
+	  sd->arg1type->genTypeInfo(NULL);
 	  dt_cons (pdt, build_address (sd->arg1type->vtinfo->toSymbol()->Stree));
 	}
       else
@@ -1489,7 +1486,7 @@ TypeInfoStructDeclaration::toDt (dt_t **pdt)
       // TypeInfo m_arg2;
       if (sd->arg2type)
 	{
-	  sd->arg2type->getTypeInfo (NULL);
+	  sd->arg2type->genTypeInfo(NULL);
 	  dt_cons (pdt, build_address (sd->arg2type->vtinfo->toSymbol()->Stree));
 	}
       else
@@ -1560,7 +1557,7 @@ TypeInfoTupleDeclaration::toDt (dt_t **pdt)
   for (size_t i = 0; i < tu->arguments->dim; i++)
     {
       Parameter *arg = (*tu->arguments)[i];
-      Expression *e = arg->type->getTypeInfo (NULL);
+      Expression *e = arg->type->getTypeInfo(NULL);
       e = e->optimize (WANTvalue);
       e->toDt (&dt);
     }

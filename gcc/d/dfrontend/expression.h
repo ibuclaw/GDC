@@ -107,6 +107,11 @@ Expression *castTo(Expression *e, Scope *sc, Type *t);
 void toCBuffer(Expression *e, OutBuffer *buf, HdrGenState *hgs);
 Expression *ctfeInterpret(Expression *);
 Expression *inlineCopy(Expression *e, Scope *sc);
+Expression *op_overload(Expression *e, Scope *sc);
+Type *toStaticArrayType(SliceExp *e);
+Expression *scaleFactor(BinExp *be, Scope *sc);
+Expression *typeCombine(BinExp *be, Scope *sc);
+Expression *inferType(Expression *e, Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
 
 /* Run CTFE on the expression, but allow the expression to be a TypeExp
  * or a tuple containing a TypeExp. (This is required by pragma(msg)).
@@ -185,7 +190,6 @@ public:
     {
         return ::castTo(this, sc, t);
     }
-    virtual Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
     virtual void checkEscape();
     virtual void checkEscapeRef();
     virtual Expression *resolveLoc(Loc loc, Scope *sc);
@@ -202,7 +206,7 @@ public:
     virtual Expression *checkToBoolean(Scope *sc);
     virtual Expression *addDtorHook(Scope *sc);
     Expression *checkToPointer();
-    Expression *addressOf(Scope *sc);
+    Expression *addressOf();
     Expression *deref();
 
     Expression *optimize(int result, bool keepLvalue = false)
@@ -223,6 +227,10 @@ public:
 
     int isConst() { return ::isConst(this); }
     virtual int isBool(int result);
+    Expression *op_overload(Scope *sc)
+    {
+        return ::op_overload(this, sc);
+    }
 
     // Back end
     virtual elem *toElem(IRState *irs);
@@ -457,9 +465,8 @@ public:
     StringExp *toStringExp();
     void toMangleBuffer(OutBuffer *buf);
     Expression *implicitCastTo(Scope *sc, Type *t);
-    Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
-    dt_t **toDt(dt_t **pdt);
 
+    dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -477,7 +484,6 @@ public:
     int isBool(int result);
     elem *toElem(IRState *irs);
     void toMangleBuffer(OutBuffer *buf);
-    Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -663,8 +669,8 @@ public:
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-    dt_t **toDt(dt_t **pdt);
 
+    dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -695,11 +701,10 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     Expression *semantic(Scope *sc, Expressions *arguments);
-    Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
     char *toChars();
+
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
-
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -787,7 +792,6 @@ public:
     Expression *semantic(Scope *sc);
     Expression *resolveLoc(Loc loc, Scope *sc);
 
-    virtual Expression *op_overload(Scope *sc);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -808,13 +812,9 @@ public:
     Expression *semantic(Scope *sc);
     Expression *semanticp(Scope *sc);
     Expression *checkComplexOpAssign(Scope *sc);
-    Expression *scaleFactor(Scope *sc);
-    Expression *typeCombine(Scope *sc);
     int isunsigned();
     Expression *incompatibleTypes();
 
-    Expression *op_overload(Scope *sc);
-    Expression *compare_overload(Scope *sc, Identifier *id);
     Expression *reorderSettingAAElem(Scope *sc);
 
     elem *toElemBin(IRState *irs, int op);
@@ -830,8 +830,6 @@ public:
     }
 
     Expression *semantic(Scope *sc);
-
-    Expression *op_overload(Scope *sc);
 
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *ex);
@@ -1066,10 +1064,8 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     void checkEscape();
-    elem *toElem(IRState *irs);
 
-    // For operator overloading
-    Expression *op_overload(Scope *sc);
+    elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1105,7 +1101,6 @@ public:
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     int isBool(int result);
-    Type *toStaticArrayType();
     elem *toElem(IRState *irs);
 
     void accept(Visitor *v) { v->visit(this); }
@@ -1136,9 +1131,6 @@ public:
     Expression *semantic(Scope *sc);
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
-
-    // For operator overloading
-    Expression *op_overload(Scope *sc);
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1492,9 +1484,6 @@ public:
     CmpExp(TOK op, Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
 
-    // For operator overloading
-    Expression *op_overload(Scope *sc);
-
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1524,9 +1513,6 @@ class EqualExp : public BinExp
 public:
     EqualExp(TOK op, Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
-
-    // For operator overloading
-    Expression *op_overload(Scope *sc);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
@@ -1560,7 +1546,6 @@ public:
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
     Expression *checkToBoolean(Scope *sc);
-    Expression *inferType(Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
 
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }

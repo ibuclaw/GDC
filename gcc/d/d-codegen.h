@@ -122,6 +122,7 @@ extern tree void_okay_p (tree t);
 
 // Various expressions
 extern tree build_binary_op (tree_code code, tree type, tree arg0, tree arg1);
+extern tree build_binop_assignment(tree_code code, Expression *e1, Expression *e2);
 extern tree build_array_index (tree ptr, tree index);
 extern tree build_offset_op (tree_code op, tree ptr, tree idx);
 extern tree build_offset (tree ptr_node, tree byte_offset);
@@ -135,23 +136,24 @@ extern tree d_build_call_nary (tree callee, int n_args, ...);
 extern tree d_assert_call (Loc loc, LibCall libcall, tree msg = NULL_TREE);
 
 // Closures and frame generation.
-extern tree build_frame_type (FuncDeclaration *func);
-extern FuncFrameInfo *get_frameinfo (FuncDeclaration *fd);
-extern tree get_framedecl (FuncDeclaration *inner, FuncDeclaration *outer);
+extern tree build_frame_type(FuncDeclaration *func);
+extern void build_closure(FuncDeclaration *fd, IRState *irs);
+extern FuncFrameInfo *get_frameinfo(FuncDeclaration *fd);
+extern tree get_framedecl(FuncDeclaration *inner, FuncDeclaration *outer);
 
-extern tree build_vthis (AggregateDeclaration *decl, FuncDeclaration *fd);
+extern tree build_vthis(AggregateDeclaration *decl, FuncDeclaration *fd);
 
 // Static chain for nested functions
-extern tree get_frame_for_symbol (FuncDeclaration *func, Dsymbol *sym);
+extern tree get_frame_for_symbol(FuncDeclaration *func, Dsymbol *sym);
 
 // Local variables
-extern void build_local_var (VarDeclaration *vd, FuncDeclaration *fd);
-extern tree build_local_temp (tree type);
-extern tree create_temporary_var (tree type);
-extern tree maybe_temporary_var (tree exp, tree *out_var);
-extern void expand_decl (tree decl);
+extern void build_local_var(VarDeclaration *vd, FuncDeclaration *fd);
+extern tree build_local_temp(tree type);
+extern tree create_temporary_var(tree type);
+extern tree maybe_temporary_var(tree exp, tree *out_var);
+extern void expand_decl(tree decl);
 
-extern tree get_decl_tree (Declaration *decl, FuncDeclaration *func);
+extern tree get_decl_tree(Declaration *decl, FuncDeclaration *func);
 
 // Temporaries (currently just SAVE_EXPRs)
 extern tree make_temp (tree t);
@@ -159,8 +161,6 @@ extern tree maybe_make_temp (tree t);
 extern bool d_has_side_effects (tree t);
 
 // Array operations
-extern bool unhandled_arrayop_p (BinExp *exp);
-
 extern bool array_bounds_check (void);
 extern tree d_checked_index (Loc loc, tree index, tree upr, bool inclusive);
 extern tree d_bounds_condition (tree index, tree upr, bool inclusive);

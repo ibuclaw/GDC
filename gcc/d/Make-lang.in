@@ -110,7 +110,7 @@ D_DMD_OBJS := \
     d/dsymbol.dmd.o d/dump.dmd.o d/entity.dmd.o d/enum.dmd.o \
     d/expression.dmd.o d/file.dmd.o d/filename.dmd.o d/func.dmd.o \
     d/hdrgen.dmd.o d/identifier.dmd.o d/imphint.dmd.o d/import.dmd.o \
-    d/init.dmd.o d/inline.dmd.o d/interpret.dmd.o d/intrange.dmd.o \
+    d/init.dmd.o d/interpret.dmd.o d/intrange.dmd.o \
     d/json.dmd.o d/lexer.dmd.o d/macro.dmd.o d/mangle.dmd.o \
     d/mtype.dmd.o d/module.dmd.o d/object.dmd.o d/opover.dmd.o \
     d/optimize.dmd.o d/outbuffer.dmd.o d/parse.dmd.o d/rmem.dmd.o \

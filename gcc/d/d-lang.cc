@@ -29,6 +29,7 @@
 #include "mars.h"
 #include "mtype.h"
 #include "cond.h"
+#include "hdrgen.h"
 #include "id.h"
 #include "json.h"
 #include "module.h"
@@ -967,7 +968,7 @@ d_parse_file (void)
 	  if (global.params.verbose)
 	    fprintf (global.stdmsg, "import    %s\n", m->toChars());
 
-	  m->genhdrfile();
+	  genhdrfile(m);
 	}
     }
 

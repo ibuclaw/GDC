@@ -51,6 +51,7 @@ struct Symbol;
 class TypeTuple;
 
 void semanticTypeInfo(Scope *sc, Type *t);
+MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
 
 enum ENUMTY
 {
@@ -325,7 +326,6 @@ public:
     virtual int isZeroInit(Loc loc = Loc());                // if initializer is 0
     virtual dt_t **toDt(dt_t **pdt);
     Identifier *getTypeInfoIdent(int internal);
-    virtual MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     virtual void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     Expression *getInternalTypeInfo(Scope *sc);
     Expression *getTypeInfo(Scope *sc);
@@ -342,17 +342,12 @@ public:
     virtual int needsDestruction();
     virtual bool needsNested();
 
-    unsigned char deduceWildHelper(Type **at, Type *tparam);
-    MATCH deduceTypeHelper(Type **at, Type *tparam);
-
     static void error(Loc loc, const char *format, ...);
     static void warning(Loc loc, const char *format, ...);
 
     // For backend
-    virtual unsigned totym();
     virtual type *toCtype();
     virtual type *toCParamtype();
-    virtual Symbol *toSymbol();
 
     // For eliminating dynamic_cast
     virtual TypeBasic *isTypeBasic();
@@ -445,7 +440,6 @@ public:
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     char *toChars();
     void toDecoBuffer(OutBuffer *buf, int flag);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     Type *reliesOnTident(TemplateParameters *tparams);
     bool isintegral();
     bool isfloating();
@@ -496,7 +490,6 @@ public:
     Expression *defaultInitLiteral(Loc loc);
     dt_t **toDt(dt_t **pdt);
     dt_t **toDtElem(dt_t **pdt, Expression *e);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     Expression *toExpression();
     int hasPointers();
@@ -527,7 +520,6 @@ public:
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
     int builtinTypeInfo();
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
 
@@ -552,7 +544,6 @@ public:
     void toDecoBuffer(OutBuffer *buf, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     Expression *defaultInit(Loc loc);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     int isZeroInit(Loc loc);
     int checkBoolean();
     TypeInfoDeclaration *getTypeInfoDeclaration();
@@ -626,6 +617,8 @@ enum PURE
     PUREfwdref = 4,     // it's pure, but not known which level yet
 };
 
+RET retStyle(TypeFunction *tf);
+
 class TypeFunction : public TypeNext
 {
 public:
@@ -652,7 +645,6 @@ public:
     Type *semantic(Loc loc, Scope *sc);
     void purityLevel();
     void toDecoBuffer(OutBuffer *buf, int flag);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     Type *reliesOnTident(TemplateParameters *tparams = NULL);
     bool hasLazyParameters();
@@ -662,9 +654,6 @@ public:
     Type *substWildTo(unsigned mod);
     MATCH callMatch(Type *tthis, Expressions *toargs, int flag = 0);
     type *toCtype();
-    RET retStyle();
-
-    unsigned totym();
 
     Expression *defaultInit(Loc loc);
     void accept(Visitor *v) { v->visit(this); }
@@ -725,7 +714,6 @@ public:
     void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     Dsymbol *toDsymbol(Scope *sc);
     Type *semantic(Loc loc, Scope *sc);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     Type *reliesOnTident(TemplateParameters *tparams = NULL);
     Expression *toExpression();
     void accept(Visitor *v) { v->visit(this); }
@@ -747,7 +735,6 @@ public:
     Type *semantic(Loc loc, Scope *sc);
     Dsymbol *toDsymbol(Scope *sc);
     Type *reliesOnTident(TemplateParameters *tparams = NULL);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     Expression *toExpression();
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -817,7 +804,6 @@ public:
     int needsDestruction();
     bool needsNested();
     dt_t **toDt(dt_t **pdt);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     MATCH implicitConvTo(Type *to);
@@ -862,7 +848,6 @@ public:
     Type *toBasetype();
     Expression *defaultInit(Loc loc);
     int isZeroInit(Loc loc);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     Type *nextOf();
@@ -907,7 +892,6 @@ public:
     Expression *defaultInitLiteral(Loc loc);
     int isZeroInit(Loc loc);
     dt_t **toDt(dt_t **pdt);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     int hasWild();
@@ -940,7 +924,6 @@ public:
     Type *toHeadMutable();
     Expression *defaultInit(Loc loc);
     int isZeroInit(Loc loc);
-    MATCH deduceType(Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL);
     int isscope();
     int checkBoolean();
     TypeInfoDeclaration *getTypeInfoDeclaration();
@@ -949,7 +932,6 @@ public:
 
     type *toCtype();
 
-    Symbol *toSymbol();
     void accept(Visitor *v) { v->visit(this); }
 };
 

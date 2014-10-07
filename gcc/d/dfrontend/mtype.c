@@ -5908,7 +5908,7 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
 
         if (arg->op == TOKfunction)
         {
-            arg = ((FuncExp *)arg)->inferType(p->type, 1);
+            arg = inferType(((FuncExp *)arg), p->type, 1);
             if (!arg)
                 goto L1;    // try typesafe variadics
         }
@@ -6023,7 +6023,7 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
                             assert(arg);
                             if (arg->op == TOKfunction)
                             {
-                                arg = ((FuncExp *)arg)->inferType(tb->nextOf(), 1);
+                                arg = inferType(((FuncExp *)arg), tb->nextOf(), 1);
                                 if (!arg)
                                     goto Nomatch;
                             }
@@ -6291,7 +6291,7 @@ Expression *TypeDelegate::dotExp(Scope *sc, Expression *e, Identifier *ident, in
             e = e->castTo(sc, tvoidptr);
         else
         {
-            e = e->addressOf(sc);
+            e = e->addressOf();
             e->type = tvoidptr;
             e = new PtrExp(e->loc, e);
             e->type = tvoidptr;
@@ -6310,7 +6310,7 @@ Expression *TypeDelegate::dotExp(Scope *sc, Expression *e, Identifier *ident, in
             e = new CommaExp(e->loc, e, new VarExp(e->loc, tmp));
             e = e->semantic(sc);
         }
-        e = e->addressOf(sc);
+        e = e->addressOf();
         e->type = tvoidptr;
         e = new AddExp(e->loc, e, new IntegerExp(Target::ptrsize));
         e->type = tvoidptr;
@@ -8428,7 +8428,7 @@ L1:
                 if (!sym->vclassinfo)
                     sym->vclassinfo = new TypeInfoClassDeclaration(sym->type);
                 e = new VarExp(e->loc, sym->vclassinfo);
-                e = e->addressOf(sc);
+                e = e->addressOf();
                 e->type = t;    // do this so we don't get redundant dereference
             }
             else

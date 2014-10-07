@@ -418,91 +418,64 @@ OrOrExp::toElem (IRState *irs)
 elem *
 XorExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (BIT_XOR_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(BIT_XOR_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 OrExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (BIT_IOR_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(BIT_IOR_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 AndExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (BIT_AND_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(BIT_AND_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 UshrExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (UNSIGNED_RSHIFT_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(UNSIGNED_RSHIFT_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 ShrExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (RSHIFT_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(RSHIFT_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 ShlExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (LSHIFT_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(LSHIFT_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 ModExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (e1->type->isfloating() ? FLOAT_MOD_EXPR : TRUNC_MOD_EXPR,
-			  type->toCtype(), e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(e1->type->isfloating() ? FLOAT_MOD_EXPR : TRUNC_MOD_EXPR,
+			 type->toCtype(), e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 DivExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (e1->type->isintegral() ? TRUNC_DIV_EXPR : RDIV_EXPR,
-			  type->toCtype(), e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(e1->type->isintegral() ? TRUNC_DIV_EXPR : RDIV_EXPR,
+			 type->toCtype(), e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 MulExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  return build_binary_op (MULT_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(MULT_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
@@ -634,9 +607,6 @@ CatExp::toElem (IRState *irs)
 elem *
 MinExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
   // %% faster: check if result is complex
   if ((e1->type->isreal() && e2->type->isimaginary())
       || (e1->type->isimaginary() && e2->type->isreal()))
@@ -654,16 +624,13 @@ MinExp::toElem (IRState *irs)
     }
 
   // The front end has already taken care of pointer-int and pointer-pointer
-  return build_binary_op (MINUS_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(MINUS_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
 AddExp::toElem (IRState *irs)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
   // %% faster: check if result is complex
   if ((e1->type->isreal() && e2->type->isimaginary())
       || (e1->type->isimaginary() && e2->type->isreal()))
@@ -679,151 +646,78 @@ AddExp::toElem (IRState *irs)
     }
 
   // The front end has already taken care of (pointer + integer)
-  return build_binary_op (PLUS_EXPR, type->toCtype(),
-			  e1->toElem (irs), e2->toElem (irs));
+  return build_binary_op(PLUS_EXPR, type->toCtype(),
+			 e1->toElem (irs), e2->toElem (irs));
 }
 
 elem *
-BinExp::toElemBin (IRState *irs, int op)
+XorAssignExp::toElem (IRState *)
 {
-  tree_code code = (tree_code) op;
-
-  // Skip casts for lhs assignment.
-  Expression *e1b = e1;
-  while (e1b->op == TOKcast)
-    {
-      CastExp *ce = (CastExp *) e1b;
-      gcc_assert (d_types_same (ce->type, ce->to));
-      e1b = ce->e1;
-    }
-
-  // Prevent multiple evaluations of LHS, but watch out!
-  // The LHS expression could be an assignment, to which
-  // it's operation gets lost during gimplification.
-  tree lexpr = NULL_TREE;
-  tree lhs;
-
-  if (e1b->op == TOKcomma)
-    {
-      CommaExp *ce = (CommaExp *) e1b;
-      lexpr = ce->e1->toElem (irs);
-      lhs = ce->e2->toElem (irs);
-    }
-  else
-    lhs = e1b->toElem (irs);
-
-  // Build assignment expression. Stabilize lhs for assignment.
-  lhs = stabilize_reference (lhs);
-
-  tree rhs = build_binary_op (code, e1->type->toCtype(),
-			      convert_expr (lhs, e1b->type, e1->type), e2->toElem (irs));
-
-  tree expr = modify_expr (lhs, convert_expr (rhs, e1->type, e1b->type));
-
-  if (lexpr)
-    expr = compound_expr (lexpr, expr);
-
-  return expr;
-}
-
-elem *
-XorAssignExp::toElem (IRState *irs)
-{
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, BIT_XOR_EXPR);
+  tree exp = build_binop_assignment(BIT_XOR_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-OrAssignExp::toElem (IRState *irs)
+OrAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, BIT_IOR_EXPR);
+  tree exp = build_binop_assignment(BIT_IOR_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-AndAssignExp::toElem (IRState *irs)
+AndAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, BIT_AND_EXPR);
+  tree exp = build_binop_assignment(BIT_AND_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-UshrAssignExp::toElem (IRState *irs)
+UshrAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, UNSIGNED_RSHIFT_EXPR);
+  tree exp = build_binop_assignment(UNSIGNED_RSHIFT_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-ShrAssignExp::toElem (IRState *irs)
+ShrAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, RSHIFT_EXPR);
+  tree exp = build_binop_assignment(RSHIFT_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-ShlAssignExp::toElem (IRState *irs)
+ShlAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, LSHIFT_EXPR);
+  tree exp = build_binop_assignment(LSHIFT_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-ModAssignExp::toElem (IRState *irs)
+ModAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, e1->type->isfloating() ?
-			FLOAT_MOD_EXPR : TRUNC_MOD_EXPR);
+  tree exp = build_binop_assignment(e1->type->isfloating()
+				    ? FLOAT_MOD_EXPR : TRUNC_MOD_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-DivAssignExp::toElem (IRState *irs)
+DivAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, e1->type->isintegral() ?
-			TRUNC_DIV_EXPR : RDIV_EXPR);
+  tree exp = build_binop_assignment(e1->type->isintegral()
+				    ? TRUNC_DIV_EXPR : RDIV_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-MulAssignExp::toElem (IRState *irs)
+MulAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, MULT_EXPR);
+  tree exp = build_binop_assignment(MULT_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
 PowAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
   gcc_unreachable();
 }
 
@@ -917,22 +811,16 @@ CatAssignExp::toElem (IRState *irs)
 }
 
 elem *
-MinAssignExp::toElem (IRState *irs)
+MinAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, MINUS_EXPR);
+  tree exp = build_binop_assignment(MINUS_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
 elem *
-AddAssignExp::toElem (IRState *irs)
+AddAssignExp::toElem (IRState *)
 {
-  if (unhandled_arrayop_p (this))
-    return error_mark_node;
-
-  tree exp = toElemBin (irs, PLUS_EXPR);
+  tree exp = build_binop_assignment(PLUS_EXPR, e1, e2);
   return convert_expr (exp, e1->type, type);
 }
 
@@ -1443,7 +1331,7 @@ DeleteExp::toElem (IRState *irs)
 	{
 	  TypeStruct *ts = (TypeStruct *) telem;
 	  if (ts->sym->dtor)
-	    ti = tb1->nextOf()->getTypeInfo (NULL)->toElem (irs);
+	    ti = tb1->nextOf()->getTypeInfo(NULL)->toElem(irs);
 	}
 
       // call _delarray_t (&t1, ti);
@@ -1503,7 +1391,7 @@ elem *
 ComExp::toElem (IRState *irs)
 {
   TY ty1 = e1->type->toBasetype()->ty;
-  gcc_assert ((ty1 != Tarray) && (ty1 != Tsarray));
+  gcc_assert (ty1 != Tarray && ty1 != Tsarray);
 
   return build1 (BIT_NOT_EXPR, type->toCtype(), e1->toElem (irs));
 }
@@ -1512,7 +1400,7 @@ elem *
 NegExp::toElem (IRState *irs)
 {
   TY ty1 = e1->type->toBasetype()->ty;
-  gcc_assert ((ty1 != Tarray) && (ty1 != Tsarray));
+  gcc_assert (ty1 != Tarray && ty1 != Tsarray);
 
   return build1 (NEGATE_EXPR, type->toCtype(), e1->toElem (irs));
 }
@@ -2157,7 +2045,7 @@ NewExp::toElem (IRState *irs)
       else
 	{
 	  libcall = htype->isZeroInit() ? LIBCALL_NEWITEMT : LIBCALL_NEWITEMIT;
-	  tree arg = type->getTypeInfo(NULL)->toElem (irs);
+	  tree arg = type->getTypeInfo(NULL)->toElem(irs);
 	  new_call = build_libcall (libcall, 1, &arg);
 	}
       new_call = maybe_make_temp (new_call);
@@ -2198,7 +2086,7 @@ NewExp::toElem (IRState *irs)
 	    return d_array_value (type->toCtype(), size_int (0), null_pointer_node);
 
 	  libcall = tarray->next->isZeroInit() ? LIBCALL_NEWARRAYT : LIBCALL_NEWARRAYIT;
-	  args[0] = type->getTypeInfo(NULL)->toElem (irs);
+	  args[0] = type->getTypeInfo(NULL)->toElem(irs);
 	  args[1] = arg->toElem (irs);
 	  result = build_libcall (libcall, 2, args, tb->toCtype());
 	}
@@ -2226,7 +2114,7 @@ NewExp::toElem (IRState *irs)
 	  DECL_INITIAL (dims_var) = dims_init;
 
 	  libcall = telem->isZeroInit() ? LIBCALL_NEWARRAYMTX : LIBCALL_NEWARRAYMITX;
-	  args[0] = type->getTypeInfo(NULL)->toElem (irs);
+	  args[0] = type->getTypeInfo(NULL)->toElem(irs);
 	  args[1] = build_integer_cst (arguments->dim, Type::tint32->toCtype());
 	  args[2] = build_address (dims_var);
 	  result = build_libcall (libcall, 3, args, tb->toCtype());
@@ -2244,7 +2132,7 @@ NewExp::toElem (IRState *irs)
 
       libcall = tpointer->next->isZeroInit (loc) ? LIBCALL_NEWITEMT : LIBCALL_NEWITEMIT;
 
-      tree arg = type->getTypeInfo(NULL)->toElem (irs);
+      tree arg = type->getTypeInfo(NULL)->toElem(irs);
       result = build_libcall (libcall, 1, &arg, tb->toCtype());
     }
   else

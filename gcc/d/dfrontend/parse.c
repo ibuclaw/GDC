@@ -2189,11 +2189,7 @@ Dsymbol *Parser::parseMixin()
         tiargs = NULL;
         if (token.value == TOKnot)
         {
-            nextToken();
-            if (token.value == TOKlparen)
-                tiargs = parseTemplateArgumentList();
-            else
-                tiargs = parseTemplateArgument();
+            tiargs = parseTemplateArguments();
         }
 
         if (tiargs && token.value == TOKdot)
@@ -2245,9 +2241,52 @@ Dsymbol *Parser::parseMixin()
 }
 
 /******************************************
+ * Parse template arguments.
+ * Input:
+ *      current token is opening '!'
+ * Output:
+ *      current token is one after closing ')'
+ */
+
+Objects *Parser::parseTemplateArguments()
+{
+    Objects *tiargs;
+
+    nextToken();
+    if (token.value == TOKlparen)
+    {
+        // ident!(template_arguments)
+        tiargs = parseTemplateArgumentList();
+    }
+    else
+    {
+        // ident!template_argument
+        tiargs = parseTemplateSingleArgument();
+    }
+    if (token.value == TOKnot)
+    {
+        TOK tok = peekNext();
+        if (tok != TOKis && tok != TOKin)
+        {
+            error("multiple ! arguments are not allowed");
+        Lagain:
+            nextToken();
+            if (token.value == TOKlparen)
+                parseTemplateArgumentList();
+            else
+                parseTemplateSingleArgument();
+            if (token.value == TOKnot && (tok = peekNext()) != TOKis && tok != TOKin)
+                goto Lagain;
+        }
+    }
+    return tiargs;
+}
+
+/******************************************
  * Parse template argument list.
  * Input:
- *      current token is opening '('
+ *      current token is opening '(',
+ *          or ',' for __traits
  * Output:
  *      current token is one after closing ')'
  */
@@ -2255,18 +2294,9 @@ Dsymbol *Parser::parseMixin()
 Objects *Parser::parseTemplateArgumentList()
 {
     //printf("Parser::parseTemplateArgumentList()\n");
-    if (token.value != TOKlparen && token.value != TOKlcurly)
-    {   error("!(TemplateArgumentList) expected following TemplateIdentifier");
-        return new Objects();
-    }
-    return parseTemplateArgumentList2();
-}
-
-Objects *Parser::parseTemplateArgumentList2()
-{
-    //printf("Parser::parseTemplateArgumentList2()\n");
     Objects *tiargs = new Objects();
     TOK endtok = TOKrparen;
+    assert(token.value == TOKlparen || token.value == TOKcomma);
     nextToken();
 
     // Get TemplateArgumentList
@@ -2298,9 +2328,9 @@ Objects *Parser::parseTemplateArgumentList2()
  *      current token is the arg
  */
 
-Objects *Parser::parseTemplateArgument()
+Objects *Parser::parseTemplateSingleArgument()
 {
-    //printf("parseTemplateArgument()\n");
+    //printf("parseTemplateSingleArgument()\n");
     Objects *tiargs = new Objects();
     Type *ta;
     switch (token.value)
@@ -2375,12 +2405,6 @@ Objects *Parser::parseTemplateArgument()
         default:
             error("template argument expected following !");
             break;
-    }
-    if (token.value == TOKnot)
-    {
-        TOK tok = peekNext();
-        if (tok != TOKis && tok != TOKin)
-            error("multiple ! arguments are not allowed");
     }
     return tiargs;
 }
@@ -2584,17 +2608,7 @@ Type *Parser::parseBasicType()
             {
                 // ident!(template_arguments)
                 TemplateInstance *tempinst = new TemplateInstance(loc, id);
-                nextToken();
-                if (token.value == TOKlparen)
-                {
-                    // ident!(template_arguments)
-                    tempinst->tiargs = parseTemplateArgumentList();
-                }
-                else
-                {
-                    // ident!template_argument
-                    tempinst->tiargs = parseTemplateArgument();
-                }
+                tempinst->tiargs = parseTemplateArguments();
                 tid = new TypeInstance(loc, tempinst);
                 goto Lident2;
             }
@@ -2615,17 +2629,7 @@ Type *Parser::parseBasicType()
                 if (token.value == TOKnot)
                 {
                     TemplateInstance *tempinst = new TemplateInstance(loc, id);
-                    nextToken();
-                    if (token.value == TOKlparen)
-                    {
-                        // ident!(template_arguments)
-                        tempinst->tiargs = parseTemplateArgumentList();
-                    }
-                    else
-                    {
-                        // ident!template_argument
-                        tempinst->tiargs = parseTemplateArgument();
-                    }
+                    tempinst->tiargs = parseTemplateArguments();
                     tid->addInst(tempinst);
                 }
                 else
@@ -6029,17 +6033,7 @@ Expression *Parser::parsePrimaryExp()
                 TemplateInstance *tempinst;
 
                 tempinst = new TemplateInstance(loc, id);
-                nextToken();
-                if (token.value == TOKlparen)
-                {
-                    // ident!(template_arguments)
-                    tempinst->tiargs = parseTemplateArgumentList();
-                }
-                else
-                {
-                    // ident!template_argument
-                    tempinst->tiargs = parseTemplateArgument();
-                }
+                tempinst->tiargs = parseTemplateArguments();
                 e = new ScopeExp(loc, tempinst);
             }
             else
@@ -6294,7 +6288,7 @@ Expression *Parser::parsePrimaryExp()
             ident = token.ident;
             nextToken();
             if (token.value == TOKcomma)
-                args = parseTemplateArgumentList2();    // __traits(identifier, args...)
+                args = parseTemplateArgumentList();     // __traits(identifier, args...)
             else
                 check(TOKrparen);               // __traits(identifier)
 
@@ -6596,19 +6590,8 @@ Expression *Parser::parsePostExp(Expression *e)
 
                     nextToken();
                     if (token.value == TOKnot && peekNext() != TOKis && peekNext() != TOKin)
-                    {   // identifier!(template-argument-list)
-                        Objects *tiargs;
-                        nextToken();
-                        if (token.value == TOKlparen)
-                        {
-                            // ident!(template_arguments)
-                            tiargs = parseTemplateArgumentList();
-                        }
-                        else
-                        {
-                            // ident!template_argument
-                            tiargs = parseTemplateArgument();
-                        }
+                    {
+                        Objects *tiargs = parseTemplateArguments();
                         e = new DotTemplateInstanceExp(loc, e, id, tiargs);
                     }
                     else

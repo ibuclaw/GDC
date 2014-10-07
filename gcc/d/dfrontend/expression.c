@@ -44,6 +44,7 @@ Expression *expandVar(int result, VarDeclaration *v);
 void functionToBufferWithIdent(TypeFunction *t, OutBuffer *buf, const char *ident);
 TypeTuple *toArgTypes(Type *t);
 void toBufferShort(Type *t, OutBuffer *buf, HdrGenState *hgs);
+void accessCheck(AggregateDeclaration *ad, Loc loc, Scope *sc, Dsymbol *smember);
 
 #define LOGSEMANTIC     0
 
@@ -461,6 +462,12 @@ Expression *resolvePropertiesX(Scope *sc, Expression *e1, Expression *e2 = NULL)
         }
         if (e2)
             goto Leprop;
+    }
+    if (e1->op == TOKvar)
+    {
+        VarExp *ve = (VarExp *)e1;
+        if (VarDeclaration *v = ve->var->isVarDeclaration())
+            ve->checkPurity(sc, v);
     }
     if (e2)
         return NULL;
@@ -1471,7 +1478,7 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
                         {
                             Expression *a = (*arguments)[u];
                             TypeArray *ta = (TypeArray *)tb;
-                            a = a->inferType(ta->next);
+                            a = inferType(a, ta->next);
                             (*arguments)[u] = a;
                             if (tret && !ta->next->equals(a->type))
                             {
@@ -2269,12 +2276,14 @@ void Expression::checkPurity(Scope *sc, VarDeclaration *v)
     if (sc->func &&
         !sc->intypeof &&             // allow violations inside typeof(expression)
         !(sc->flags & SCOPEdebug) && // allow violations inside debug conditionals
+        !(sc->flags & SCOPEctfe) &&  // allow violations inside compile-time evaluated expressions
         v->ident != Id::ctfe &&      // magic variable never violates pure and safe
         !v->isImmutable() &&         // always safe and pure to access immutables...
         !(v->isConst() && !v->isRef() && (v->isDataseg() || v->isParameter()) &&
           v->type->implicitConvTo(v->type->immutableOf())) &&
             // or const global/parameter values which have no mutable indirections
-        !(v->storage_class & STCmanifest) // ...or manifest constants
+        !(v->storage_class & STCmanifest) && // ...or manifest constants
+        !v->needThis()               // ...or 'unreal' var access
        )
     {
         if (v->isDataseg())
@@ -2337,7 +2346,7 @@ void Expression::checkPurity(Scope *sc, VarDeclaration *v)
             for (Dsymbol *s = sc->func; s; s = s->toParent2())
             {
                 if (s == vparent)
-                        break;
+                    break;
                 FuncDeclaration *ff = s->isFuncDeclaration();
                 if (!ff)
                     break;
@@ -2445,11 +2454,25 @@ Expression *Expression::checkToPointer()
  * Take address of expression.
  */
 
-Expression *Expression::addressOf(Scope *sc)
+Expression *Expression::addressOf()
 {
     //printf("Expression::addressOf()\n");
-    Expression *e = toLvalue(sc, NULL);
-    e = new AddrExp(loc, e);
+#ifdef DEBUG
+    {
+        Expression *e = this;
+        while (e->op == TOKcomma)
+            e = ((CommaExp *)e)->e2;
+
+        /* VarExp::isLvalue() returns false if the variable has STCtemp.
+         * However in glue layer, a variable with STCtemp is address-able.
+         * So currently we cannot directly use e->isLvalue().
+         */
+        assert(e->op == TOKvar && ((VarExp *)e)->var->isVarDeclaration() ||
+               e->op == TOKerror ||
+               e->isLvalue());
+    }
+#endif
+    Expression *e = new AddrExp(loc, this);
     e->type = type->pointerTo();
     return e;
 }
@@ -4825,7 +4848,7 @@ Lagain:
             member = f->isCtorDeclaration();
             assert(member);
 
-            cd->accessCheck(loc, sc, member);
+            accessCheck(cd, loc, sc, member);
 
             TypeFunction *tf = (TypeFunction *)f->type;
 
@@ -4922,7 +4945,7 @@ Lagain:
             member = f->isCtorDeclaration();
             assert(member);
 
-            sd->accessCheck(loc, sc, member);
+            accessCheck(sd, loc, sc, member);
 
             TypeFunction *tf = (TypeFunction *)f->type;
 
@@ -5178,7 +5201,6 @@ Expression *VarExp::semantic(Scope *sc)
     {
         hasOverloads = 0;
         v->checkNestedReference(sc, loc);
-        checkPurity(sc, v);
     }
     FuncDeclaration *f = var->isFuncDeclaration();
     if (f)
@@ -5517,7 +5539,7 @@ Expression *FuncExp::semantic(Scope *sc)
             type = Type::tvoid; // temporary type
 
             if (fd->treq)  // defer type determination
-                e = inferType(fd->treq);
+                e = inferType(this, fd->treq);
             goto Ldone;
         }
 
@@ -6137,7 +6159,7 @@ Expression *IsExp::semantic(Scope *sc)
         dedtypes.setDim(parameters->dim);
         dedtypes.zero();
 
-        MATCH m = targ->deduceType(sc, tspec, parameters, &dedtypes);
+        MATCH m = deduceType(targ, sc, tspec, parameters, &dedtypes);
         //printf("targ: %s\n", targ->toChars());
         //printf("tspec: %s\n", tspec->toChars());
         if (m <= MATCHnomatch ||
@@ -6452,7 +6474,7 @@ Expression *BinAssignExp::semantic(Scope *sc)
     else if (e1->op == TOKslice || e1->type->ty == Tarray || e1->type->ty == Tsarray)
     {
         // T[] op= ...
-        e = typeCombine(sc);
+        e = typeCombine(this, sc);
         if (e->op == TOKerror)
             return e;
         type = e1->type;
@@ -6478,9 +6500,9 @@ Expression *BinAssignExp::semantic(Scope *sc)
     if ((op == TOKaddass || op == TOKminass) &&
         e1->type->toBasetype()->ty == Tpointer &&
         e2->type->toBasetype()->isintegral())
-        return scaleFactor(sc);
+        return scaleFactor(this, sc);
 
-    typeCombine(sc);
+    typeCombine(this, sc);
     if (arith)
     {
         e1 = e1->checkArithmetic();
@@ -6828,6 +6850,12 @@ Expression *DotIdExp::semanticX(Scope *sc)
             default:
                 break;
         }
+    }
+
+    if (e1->op == TOKvar && e1->type->toBasetype()->ty == Tsarray && ident == Id::length)
+    {
+        // bypass checkPurity
+        return e1->type->dotExp(sc, e1, ident, 0);
     }
 
     if (e1->op == TOKdotexp)
@@ -10237,7 +10265,7 @@ Expression *PostExp::semantic(Scope *sc)
         e1->checkScalar();
         e1->checkNoBool();
         if (e1->type->ty == Tpointer)
-            e = scaleFactor(sc);
+            e = scaleFactor(this, sc);
         else
             e2 = e2->castTo(sc, e1->type);
         e->type = e1->type;
@@ -10448,7 +10476,7 @@ Expression *AssignExp::semantic(Scope *sc)
     assert(e1->type);
     Type *t1 = e1->type->toBasetype();
 
-    e2 = e2->inferType(t1);
+    e2 = inferType(e2, t1);
 
     e2 = e2->semantic(sc);
     if (e2->op == TOKerror)
@@ -11196,7 +11224,7 @@ Expression *CatAssignExp::semantic(Scope *sc)
     Type *tb1 = e1->type->toBasetype();
     Type *tb1next = tb1->nextOf();
 
-    e2 = e2->inferType(tb1next);
+    e2 = inferType(e2, tb1next);
     if (!e2->rvalue())
         return new ErrorExp();
 
@@ -11330,7 +11358,7 @@ Expression *PowAssignExp::semantic(Scope *sc)
     assert(e1->type && e2->type);
     if (e1->op == TOKslice || e1->type->ty == Tarray || e1->type->ty == Tsarray)
     {   // T[] ^^= ...
-        e = typeCombine(sc);
+        e = typeCombine(this, sc);
         if (e->op == TOKerror)
             return e;
 
@@ -11421,7 +11449,7 @@ Expression *AddExp::semantic(Scope *sc)
         if (tb1->ty == Tpointer && e2->type->isintegral() ||
             tb2->ty == Tpointer && e1->type->isintegral())
         {
-            e = scaleFactor(sc);
+            e = scaleFactor(this, sc);
         }
         else if (tb1->ty == Tpointer && tb2->ty == Tpointer)
         {
@@ -11429,7 +11457,7 @@ Expression *AddExp::semantic(Scope *sc)
         }
         else
         {
-            typeCombine(sc);
+            typeCombine(this, sc);
             Type *tb = type->toBasetype();
             if (tb->ty == Tarray || tb->ty == Tsarray)
             {
@@ -11522,7 +11550,7 @@ Expression *MinExp::semantic(Scope *sc)
             // Replace (ptr - ptr) with (ptr - ptr) / stride
             d_int64 stride;
 
-            typeCombine(sc);            // make sure pointer types are compatible
+            typeCombine(this, sc);            // make sure pointer types are compatible
             type = Type::tptrdiff_t;
             stride = t2->nextOf()->size();
             if (stride == 0)
@@ -11537,7 +11565,7 @@ Expression *MinExp::semantic(Scope *sc)
             return e;
         }
         else if (t2->isintegral())
-            e = scaleFactor(sc);
+            e = scaleFactor(this, sc);
         else
         {   error("can't subtract %s from pointer", t2->toChars());
             return new ErrorExp();
@@ -11551,7 +11579,7 @@ Expression *MinExp::semantic(Scope *sc)
     }
     else
     {
-        typeCombine(sc);
+        typeCombine(this, sc);
         Type *tb = type->toBasetype();
         if (tb->ty == Tarray || tb->ty == Tsarray)
         {
@@ -11692,7 +11720,7 @@ Expression *CatExp::semantic(Scope *sc)
                 e2 = e2->castTo(sc, t2);
         }
 
-        typeCombine(sc);
+        typeCombine(this, sc);
         type = type->toHeadMutable();
 
         Type *tb = type->toBasetype();
@@ -11754,7 +11782,7 @@ Expression *MulExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    typeCombine(sc);
+    typeCombine(this, sc);
     Type *tb = type->toBasetype();
     if (tb->ty == Tarray || tb->ty == Tsarray)
     {
@@ -11839,7 +11867,7 @@ Expression *DivExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    typeCombine(sc);
+    typeCombine(this, sc);
     Type *tb = type->toBasetype();
     if (tb->ty == Tarray || tb->ty == Tsarray)
     {
@@ -11923,7 +11951,7 @@ Expression *ModExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    typeCombine(sc);
+    typeCombine(this, sc);
     Type *tb = type->toBasetype();
     if (tb->ty == Tarray || tb->ty == Tsarray)
     {
@@ -11995,7 +12023,7 @@ Expression *PowExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    typeCombine(sc);
+    typeCombine(this, sc);
     Type *tb = type->toBasetype();
     if (tb->ty == Tarray || tb->ty == Tsarray)
     {
@@ -12062,7 +12090,7 @@ Expression *PowExp::semantic(Scope *sc)
 
         // Leave handling of PowExp to the backend, or throw
         // an error gracefully if no backend support exists.
-        typeCombine(sc);
+        typeCombine(this, sc);
         e = this;
         return e;
     }
@@ -12187,7 +12215,7 @@ Expression *AndExp::semantic(Scope *sc)
             return this;
         }
 
-        typeCombine(sc);
+        typeCombine(this, sc);
         Type *tb = type->toBasetype();
         if (tb->ty == Tarray || tb->ty == Tsarray)
         {
@@ -12232,7 +12260,7 @@ Expression *OrExp::semantic(Scope *sc)
             return this;
         }
 
-        typeCombine(sc);
+        typeCombine(this, sc);
         Type *tb = type->toBasetype();
         if (tb->ty == Tarray || tb->ty == Tsarray)
         {
@@ -12277,7 +12305,7 @@ Expression *XorExp::semantic(Scope *sc)
             return this;
         }
 
-        typeCombine(sc);
+        typeCombine(this, sc);
         Type *tb = type->toBasetype();
         if (tb->ty == Tarray || tb->ty == Tsarray)
         {
@@ -12525,7 +12553,7 @@ Expression *CmpExp::semantic(Scope *sc)
         return new ErrorExp();
     }
 
-    e = typeCombine(sc);
+    e = typeCombine(this, sc);
     if (e->op == TOKerror)
         return e;
 
@@ -12759,7 +12787,7 @@ Expression *EqualExp::semantic(Scope *sc)
         StructDeclaration *sd = ((TypeStruct *)t1)->sym;
         if (sd == ((TypeStruct *)t2)->sym)
         {
-            if (sd->needOpEquals())
+            if (needOpEquals(sd))
             {
                 this->e1 = new DotIdExp(loc, e1, Id::tupleof);
                 this->e2 = new DotIdExp(loc, e2, Id::tupleof);
@@ -12811,7 +12839,7 @@ Expression *EqualExp::semantic(Scope *sc)
         return e->semantic(sc);
     }
 
-    e = typeCombine(sc);
+    e = typeCombine(this, sc);
     if (e->op == TOKerror)
         return e;
 
@@ -12851,7 +12879,7 @@ Expression *IdentityExp::semantic(Scope *sc)
     BinExp::semanticp(sc);
     type = Type::tboolean;
 
-    Expression *e = typeCombine(sc);
+    Expression *e = typeCombine(this, sc);
     if (e->op == TOKerror)
         return e;
 
@@ -12927,7 +12955,7 @@ Expression *CondExp::semantic(Scope *sc)
         type = t1;
     else
     {
-        typeCombine(sc);
+        typeCombine(this, sc);
         switch (e1->type->toBasetype()->ty)
         {
             case Tcomplex32:
@@ -12969,9 +12997,9 @@ Expression *CondExp::toLvalue(Scope *sc, Expression *ex)
 {
     // convert (econd ? e1 : e2) to *(econd ? &e1 : &e2)
     PtrExp *e = new PtrExp(loc, this, type);
-    e1 = e1->addressOf(sc);
-    e2 = e2->addressOf(sc);
-    //typeCombine(sc);
+    e1 = e1->toLvalue(sc, NULL)->addressOf();
+    e2 = e2->toLvalue(sc, NULL)->addressOf();
+    //typeCombine(this, sc);
     type = e2->type;
     return e;
 }

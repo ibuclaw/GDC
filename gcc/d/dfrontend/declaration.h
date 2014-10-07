@@ -213,7 +213,6 @@ public:
 
     void toObjFile(int multiobj);                       // compile to .obj file
     void toDebug();
-    int cvMember(unsigned char *p);
 
     TypedefDeclaration *isTypedefDeclaration() { return this; }
 
@@ -305,7 +304,6 @@ public:
     Dsymbol *toAlias();
     Symbol *toSymbol();
     void toObjFile(int multiobj);                       // compile to .obj file
-    int cvMember(unsigned char *p);
     const char *mangle(bool isv = false);
     // Eliminate need for dynamic_cast
     VarDeclaration *isVarDeclaration() { return (VarDeclaration *)this; }
@@ -565,10 +563,12 @@ enum BUILTIN
 };
 
 Expression *eval_builtin(Loc loc, FuncDeclaration *fd, Expressions *arguments);
+BUILTIN isBuiltin(FuncDeclaration *fd);
 
 typedef Expression *(*builtin_fp)(Loc loc, FuncDeclaration *fd, Expressions *arguments);
 void add_builtin(const char *mangle, builtin_fp fp);
 void builtin_init();
+void buildClosure(FuncDeclaration *fd, IRState *irs);
 
 class FuncDeclaration : public Declaration
 {
@@ -683,7 +683,6 @@ public:
     bool isMain();
     bool isWinMain();
     bool isDllMain();
-    BUILTIN isBuiltin();
     bool isExport();
     bool isImportedSymbol();
     bool isCodeseg();
@@ -705,7 +704,6 @@ public:
     virtual bool isFinalFunc();
     virtual bool addPreInvariant();
     virtual bool addPostInvariant();
-    int canInline(int hasthis, int hdrscan, int statementsToo);
     const char *kind();
     void toDocBuffer(OutBuffer *buf, Scope *sc);
     FuncDeclaration *isUnique();
@@ -723,8 +721,6 @@ public:
     Symbol *toSymbol();
     Symbol *toThunkSymbol(int offset);  // thunk version
     void toObjFile(int multiobj);                       // compile to .obj file
-    int cvMember(unsigned char *p);
-    void buildClosure(IRState *irs);
     bool needsCodegen();
 
     FuncDeclaration *isFuncDeclaration() { return this; }

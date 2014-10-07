@@ -53,6 +53,17 @@ enum StructPOD
     ISPODfwd,           // POD not yet computed
 };
 
+FuncDeclaration *hasIdentityOpAssign(AggregateDeclaration *ad, Scope *sc);
+FuncDeclaration *buildOpAssign(StructDeclaration *sd, Scope *sc);
+bool needOpEquals(StructDeclaration *sd);
+FuncDeclaration *buildOpEquals(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildXopEquals(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildXopCmp(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildCpCtor(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildPostBlit(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildDtor(AggregateDeclaration *ad, Scope *sc);
+FuncDeclaration *buildInv(AggregateDeclaration *ad, Scope *sc);
+
 class AggregateDeclaration : public ScopeDsymbol
 {
 public:
@@ -105,8 +116,6 @@ public:
     int firstFieldInUnion(int indx); // first field in union that includes indx
     int numFieldsInUnion(int firstIndex); // #fields in union starting at index
     bool isDeprecated();         // is aggregate deprecated?
-    FuncDeclaration *buildDtor(Scope *sc);
-    FuncDeclaration *buildInv(Scope *sc);
     bool isNested();
     void makeNested();
     bool isExport();
@@ -115,16 +124,7 @@ public:
     void emitComment(Scope *sc);
     void toDocBuffer(OutBuffer *buf, Scope *sc);
 
-    FuncDeclaration *hasIdentityOpAssign(Scope *sc);
-    FuncDeclaration *hasIdentityOpEquals(Scope *sc);
-
     const char *mangle(bool isv = false);
-
-    // For access checking
-    virtual PROT getAccess(Dsymbol *smember);   // determine access to smember
-    int isFriendOf(AggregateDeclaration *cd);
-    int hasPrivateAccess(Dsymbol *smember);     // does smember have private access to members of this class?
-    void accessCheck(Loc loc, Scope *sc, Dsymbol *smember);
 
     PROT prot();
 
@@ -178,17 +178,7 @@ public:
     void finalizeSize(Scope *sc);
     bool fill(Loc loc, Expressions *elements, bool ctorinit);
     bool isPOD();
-    int needOpAssign();
-    int needOpEquals();
-    FuncDeclaration *buildOpAssign(Scope *sc);
-    FuncDeclaration *buildPostBlit(Scope *sc);
-    FuncDeclaration *buildCpCtor(Scope *sc);
-    FuncDeclaration *buildOpEquals(Scope *sc);
-    FuncDeclaration *buildXopEquals(Scope *sc);
-    FuncDeclaration *buildXopCmp(Scope *sc);
     void toDocBuffer(OutBuffer *buf, Scope *sc);
-
-    PROT getAccess(Dsymbol *smember);   // determine access to smember
 
     void toObjFile(int multiobj);                       // compile to .obj file
     void toDt(dt_t **pdt);
@@ -313,8 +303,6 @@ public:
     const char *kind();
     const char *mangle(bool isv = false);
     void toDocBuffer(OutBuffer *buf, Scope *sc);
-
-    PROT getAccess(Dsymbol *smember);   // determine access to smember
 
     void addLocalClass(ClassDeclarations *);
 
