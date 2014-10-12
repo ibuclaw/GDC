@@ -1560,14 +1560,32 @@ Lretry:
             if (!(fparam->storageClass & STClazy) && argtype->ty == Tvoid)
                 goto Lnomatch;
 
-            /* Remove top const for dynamic array types and pointer types
+            /* Adjust top const of the dynamic array type or pointer type argument
+             * to the corresponding parameter type qualifier,
+             * to pass through deduceType.
              */
+            Type *at = argtype;
             if ((argtype->ty == Tarray || argtype->ty == Tpointer) &&
-                !argtype->isMutable() &&
+                ((prmtype->mod & MODwild) || deduceTypeHelper(argtype, &at, prmtype)) &&
                 (!(fparam->storageClass & STCref) ||
                  (fparam->storageClass & STCauto) && !farg->isLvalue()))
             {
-                argtype = argtype->mutableOf();
+                if ((prmtype->mod & MODwild) || prmtype->mod == 0)
+                {
+                    /*     prmtype      argtype                Adjusted argtype
+                     * foo(      U)     immutable(int[])    => immutable(int)[]
+                     * foo(inout U)     immutable(int[])    => immutable(int)[]
+                     */
+                    argtype = at->mutableOf();
+                }
+                else
+                {
+                    /*     prmtype      argtype                Adjusted argtype
+                     * foo(immutable U) immutable(int)[]    => immutable(int[])
+                     * foo(    const U) immutable(int[])    => const(immutable(int)[])
+                     */
+                    argtype = at->addMod(prmtype->mod);
+                }
             }
 
             if (fvarargs == 2 && parami + 1 == nfparams && argi + 1 < nfargs)
@@ -5266,7 +5284,6 @@ TemplateInstance::TemplateInstance(Loc loc, Identifier *ident)
     this->argsym = NULL;
     this->aliasdecl = NULL;
     this->semantictiargsdone = false;
-    this->withsym = NULL;
     this->nest = 0;
     this->havetempdecl = false;
     this->enclosing = NULL;
@@ -5297,7 +5314,6 @@ TemplateInstance::TemplateInstance(Loc loc, TemplateDeclaration *td, Objects *ti
     this->argsym = NULL;
     this->aliasdecl = NULL;
     this->semantictiargsdone = true;
-    this->withsym = NULL;
     this->nest = 0;
     this->havetempdecl = true;
     this->enclosing = NULL;
@@ -5458,7 +5474,7 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
      * then run semantic on each argument (place results in tiargs[]),
      * last find most specialized template from overload list/set.
      */
-    if (!findTemplateDeclaration(sc) ||
+    if (!findTemplateDeclaration(sc, NULL) ||
         !semanticTiargs(sc) ||
         !findBestMatch(sc, fargs))
     {
@@ -5903,8 +5919,11 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
  * Find template declaration corresponding to template instance.
  */
 
-bool TemplateInstance::findTemplateDeclaration(Scope *sc)
+bool TemplateInstance::findTemplateDeclaration(Scope *sc, WithScopeSymbol **pwithsym)
 {
+    if (pwithsym)
+        *pwithsym = NULL;
+
     if (havetempdecl)
         return true;
 
@@ -5933,7 +5952,8 @@ bool TemplateInstance::findTemplateDeclaration(Scope *sc)
         if (s->parent)
             printf("s->parent = '%s'\n", s->parent->toChars());
 #endif
-        withsym = scopesym->isWithScopeSymbol();
+        if (pwithsym)
+            *pwithsym = scopesym->isWithScopeSymbol();
 
         /* We might have found an alias within a template when
          * we really want the template.

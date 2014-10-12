@@ -787,7 +787,7 @@ public:
 
     UnaExp(Loc loc, TOK op, int size, Expression *e1);
     Expression *syntaxCopy();
-    Expression *semantic(Scope *sc);
+    Expression *semantic(Scope *sc) = 0;
     Expression *unaSemantic(Scope *sc);
     Expression *resolveLoc(Loc loc, Scope *sc);
 
@@ -808,7 +808,7 @@ public:
 
     BinExp(Loc loc, TOK op, int size, Expression *e1, Expression *e2);
     Expression *syntaxCopy();
-    Expression *semantic(Scope *sc);
+    Expression *semantic(Scope *sc) = 0;
     Expression *binSemantic(Scope *sc);
     Expression *binSemanticProp(Scope *sc);
     Expression *checkComplexOpAssign(Scope *sc);
@@ -887,6 +887,7 @@ public:
     TemplateDeclaration *td;
 
     DotTemplateExp(Loc loc, Expression *e, TemplateDeclaration *td);
+    Expression *semantic(Scope *sc);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -912,6 +913,7 @@ public:
     TemplateInstance *ti;
 
     DotTemplateInstanceExp(Loc loc, Expression *e, Identifier *name, Objects *tiargs);
+    DotTemplateInstanceExp(Loc loc, Expression *e, TemplateInstance *ti);
     Expression *syntaxCopy();
     bool findTempDecl(Scope *sc);
     Expression *semantic(Scope *sc);
@@ -1504,6 +1506,7 @@ class RemoveExp : public BinExp
 {
 public:
     RemoveExp(Loc loc, Expression *e1, Expression *e2);
+    Expression *semantic(Scope *sc);
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };

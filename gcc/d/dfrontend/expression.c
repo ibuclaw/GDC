@@ -2462,19 +2462,7 @@ Expression *Expression::addressOf()
 {
     //printf("Expression::addressOf()\n");
 #ifdef DEBUG
-    {
-        Expression *e = this;
-        while (e->op == TOKcomma)
-            e = ((CommaExp *)e)->e2;
-
-        /* VarExp::isLvalue() returns false if the variable has STCtemp.
-         * However in glue layer, a variable with STCtemp is address-able.
-         * So currently we cannot directly use e->isLvalue().
-         */
-        assert(e->op == TOKvar && ((VarExp *)e)->var->isVarDeclaration() ||
-               e->op == TOKerror ||
-               e->isLvalue());
-    }
+    assert(op == TOKerror || isLvalue());
 #endif
     Expression *e = new AddrExp(loc, this);
     e->type = type->pointerTo();
@@ -4546,12 +4534,19 @@ Lagain:
     TemplateInstance *ti = sds->isTemplateInstance();
     if (ti)
     {
-        if (!ti->findTemplateDeclaration(sc) ||
+        WithScopeSymbol *withsym;
+        if (!ti->findTemplateDeclaration(sc, &withsym) ||
             !ti->semanticTiargs(sc))
         {
             ti->inst = ti;
             ti->inst->errors = true;
             return new ErrorExp();
+        }
+        if (withsym && withsym->withstate->wthis)
+        {
+            Expression *e = new VarExp(loc, withsym->withstate->wthis);
+            e = new DotTemplateInstanceExp(loc, e, ti);
+            return e->semantic(sc);
         }
         if (ti->needsTypeInference(sc))
         {
@@ -4593,10 +4588,10 @@ Lagain:
                 Expression *e;
 
                 //printf("s = %s, '%s'\n", s->kind(), s->toChars());
-                if (ti->withsym && ti->withsym->withstate->wthis)
+                if (withsym && withsym->withstate->wthis)
                 {
                     // Same as wthis.s
-                    e = new VarExp(loc, ti->withsym->withstate->wthis);
+                    e = new VarExp(loc, withsym->withstate->wthis);
                     e = new DotVarExp(loc, e, s->isDeclaration());
                 }
                 else
@@ -6269,22 +6264,15 @@ Expression *UnaExp::syntaxCopy()
     return e;
 }
 
-Expression *UnaExp::semantic(Scope *sc)
-{
-#if LOGSEMANTIC
-    printf("UnaExp::semantic('%s')\n", toChars());
-#endif
-    if (Expression *ex = unaSemantic(sc))
-        return ex;
-    return this;
-}
-
 /**************************
  * Helper function for easy error propagation.
  * If error occurs, returns ErrorExp. Otherwise returns NULL.
  */
 Expression *UnaExp::unaSemantic(Scope *sc)
 {
+#if LOGSEMANTIC
+    printf("UnaExp::semantic('%s')\n", toChars());
+#endif
     Expression *e1x = e1->semantic(sc);
     if (e1x->op == TOKerror)
         return e1x;
@@ -6319,22 +6307,15 @@ Expression *BinExp::syntaxCopy()
     return e;
 }
 
-Expression *BinExp::semantic(Scope *sc)
-{
-#if LOGSEMANTIC
-    printf("BinExp::semantic('%s')\n", toChars());
-#endif
-    if (Expression *ex = binSemantic(sc))
-        return ex;
-    return this;
-}
-
 /**************************
  * Helper function for easy error propagation.
  * If error occurs, returns ErrorExp. Otherwise returns NULL.
  */
 Expression *BinExp::binSemantic(Scope *sc)
 {
+#if LOGSEMANTIC
+    printf("BinExp::semantic('%s')\n", toChars());
+#endif
     Expression *e1x = e1->semantic(sc);
     Expression *e2x = e2->semantic(sc);
     if (e1x->op == TOKerror)
@@ -7198,6 +7179,13 @@ DotTemplateExp::DotTemplateExp(Loc loc, Expression *e, TemplateDeclaration *td)
     this->td = td;
 }
 
+Expression *DotTemplateExp::semantic(Scope *sc)
+{
+    if (Expression *ex = unaSemantic(sc))
+        return ex;
+    return this;
+}
+
 /************************************************************/
 
 DotVarExp::DotVarExp(Loc loc, Expression *e, Declaration *v, bool hasOverloads)
@@ -7456,6 +7444,12 @@ DotTemplateInstanceExp::DotTemplateInstanceExp(Loc loc, Expression *e, Identifie
     //printf("DotTemplateInstanceExp()\n");
     this->ti = new TemplateInstance(loc, name);
     this->ti->tiargs = tiargs;
+}
+
+DotTemplateInstanceExp::DotTemplateInstanceExp(Loc loc, Expression *e, TemplateInstance *ti)
+        : UnaExp(loc, TOKdotti, sizeof(DotTemplateInstanceExp), e)
+{
+    this->ti = ti;
 }
 
 Expression *DotTemplateInstanceExp::syntaxCopy()
@@ -7744,7 +7738,9 @@ Expression *DotTypeExp::semantic(Scope *sc)
 #if LOGSEMANTIC
     printf("DotTypeExp::semantic('%s')\n", toChars());
 #endif
-    return UnaExp::semantic(sc);
+    if (Expression *ex = unaSemantic(sc))
+        return ex;
+    return this;
 }
 
 /************************************************************/
@@ -7864,19 +7860,27 @@ Expression *CallExp::semantic(Scope *sc)
      *  foo!(tiargs)(funcargs)
      */
     if (e1->op == TOKimport && !e1->type)
-    {   ScopeExp *se = (ScopeExp *)e1;
+    {
+        ScopeExp *se = (ScopeExp *)e1;
         TemplateInstance *ti = se->sds->isTemplateInstance();
         if (ti && !ti->semanticRun)
         {
             /* Attempt to instantiate ti. If that works, go with it.
              * If not, go with partial explicit specialization.
              */
-            if (!ti->findTemplateDeclaration(sc) ||
+            WithScopeSymbol *withsym;
+            if (!ti->findTemplateDeclaration(sc, &withsym) ||
                 !ti->semanticTiargs(sc))
             {
                 ti->inst = ti;
                 ti->inst->errors = true;
                 return new ErrorExp();
+            }
+            if (withsym && withsym->withstate->wthis)
+            {
+                e1 = new VarExp(e1->loc, withsym->withstate->wthis);
+                e1 = new DotTemplateInstanceExp(e1->loc, e1, ti);
+                goto Ldotti;
             }
             if (ti->needsTypeInference(sc, 1))
             {
@@ -7903,7 +7907,8 @@ Expression *CallExp::semantic(Scope *sc)
      */
 Ldotti:
     if (e1->op == TOKdotti && !e1->type)
-    {   DotTemplateInstanceExp *se = (DotTemplateInstanceExp *)e1;
+    {
+        DotTemplateInstanceExp *se = (DotTemplateInstanceExp *)e1;
         TemplateInstance *ti = se->ti;
         if (!ti->semanticRun)
         {
@@ -12680,6 +12685,13 @@ RemoveExp::RemoveExp(Loc loc, Expression *e1, Expression *e2)
     type = Type::tboolean;
 }
 
+Expression *RemoveExp::semantic(Scope *sc)
+{
+    if (Expression *ex = binSemantic(sc))
+        return ex;
+    return this;
+}
+
 /************************************************************/
 
 CmpExp::CmpExp(TOK op, Loc loc, Expression *e1, Expression *e2)
@@ -13537,4 +13549,33 @@ Expression *BinExp::reorderSettingAAElem(Scope *sc)
     }
     ec = new CommaExp(loc, ec, this);
     return ec->semantic(sc);
+}
+
+/***************************************
+ * Create a static array of TypeInfo references
+ * corresponding to an array of Expression's.
+ * Used to supply hidden _arguments[] value for variadic D functions.
+ */
+
+Expression *createTypeInfoArray(Scope *sc, Expression *exps[], size_t dim)
+{
+    /*
+     * Pass a reference to the TypeInfo_Tuple corresponding to the types of the
+     * arguments. Source compatibility is maintained by computing _arguments[]
+     * at the start of the called function by offseting into the TypeInfo_Tuple
+     * reference.
+     */
+    Parameters *args = new Parameters;
+    args->setDim(dim);
+    for (size_t i = 0; i < dim; i++)
+    {
+        Parameter *arg = new Parameter(STCin, exps[i]->type, NULL, NULL);
+        (*args)[i] = arg;
+    }
+    TypeTuple *tup = new TypeTuple(args);
+    Expression *e = tup->getTypeInfo(sc);
+    e = e->optimize(WANTvalue);
+    assert(e->op == TOKsymoff);         // should be SymOffExp
+
+    return e;
 }

@@ -267,35 +267,3 @@ TypeClass::builtinTypeInfo (void)
   return mod ? 0 : 1;
 }
 
-/* ========================================================================= */
-
-/***************************************
- * Create a static array of TypeInfo references
- * corresponding to an array of Expression's.
- * Used to supply hidden _arguments[] value for variadic D functions.
- */
-
-Expression *
-createTypeInfoArray (Scope *sc, Expression *exps[], size_t dim)
-{
-  /*
-   * Pass a reference to the TypeInfo_Tuple corresponding to the types of the
-   * arguments. Source compatibility is maintained by computing _arguments[]
-   * at the start of the called function by offseting into the TypeInfo_Tuple
-   * reference.
-   */
-  Parameters *args = new Parameters;
-  args->setDim (dim);
-  for (size_t i = 0; i < dim; i++)
-    {
-      Parameter *arg = Parameter::create (STCin, exps[i]->type, NULL, NULL);
-      (*args)[i] = arg;
-    }
-  TypeTuple *tup = TypeTuple::create (args);
-  Expression *e = tup->getTypeInfo(sc);
-  e = e->optimize (WANTvalue);
-  gcc_assert (e->op == TOKsymoff);
-
-  return e;
-}
-
