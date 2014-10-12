@@ -631,13 +631,11 @@ public:
                                         // functions
     FuncDeclarations siblingCallers;    // Sibling nested functions which
                                         // called this one
-    FuncDeclarations deferred;          // toObjFile() these functions after this one
 
     unsigned flags;
     #define FUNCFLAGpurityInprocess 1   // working on determining purity
     #define FUNCFLAGsafetyInprocess 2   // working on determining safety
     #define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
-    #define FUNCFLAGgcuseInprocess  8   // working on determining gc usage
 
     FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -682,9 +680,7 @@ public:
     bool isSafeBypassingInference();
     bool isTrusted();
     bool setUnsafe();
-    bool isNOGC();
-    bool setGCUse(Loc loc, const char *warn);
-    bool setGCUse();
+    void printGCUsage(Loc loc, const char *warn);
     bool isolateReturn();
     bool parametersIntersect(Type *t);
     virtual bool isNested();
@@ -754,6 +750,8 @@ public:
     bool isVirtual();
     bool addPreInvariant();
     bool addPostInvariant();
+
+    void modifyReturns(Scope *sc, Type *tret);
 
     FuncLiteralDeclaration *isFuncLiteralDeclaration() { return this; }
     const char *kind();
@@ -891,6 +889,10 @@ class UnitTestDeclaration : public FuncDeclaration
 {
 public:
     char *codedoc; /** For documented unittest. */
+
+    // toObjFile() these nested functions after this one
+    FuncDeclarations deferredNested;
+
     UnitTestDeclaration(Loc loc, Loc endloc, char *codedoc);
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);

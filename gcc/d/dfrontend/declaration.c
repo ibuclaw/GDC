@@ -1170,8 +1170,7 @@ Lnomatch:
             else
             {
                 storage_class |= STCfield;
-                if ((tbn->ty == Tstruct && ((TypeStruct *)tbn)->sym->noDefaultCtor) ||
-                    (tbn->ty == Tclass  && ((TypeClass  *)tbn)->sym->noDefaultCtor))
+                if ((tbn->ty == Tstruct && ((TypeStruct *)tbn)->sym->noDefaultCtor))
                 {
                     if (!isThisDeclaration() && !init)
                         aad->noDefaultCtor = true;
@@ -1346,6 +1345,10 @@ Lnomatch:
             else
                 init = getExpInitializer();
         }
+        else if (type->baseElemOf()->ty == Tvoid)
+        {
+            error("%s does not have a default initializer", type->toChars());
+        }
         else
         {
             init = getExpInitializer();
@@ -1430,7 +1433,7 @@ Lnomatch:
         }
         else if (parent->isAggregateDeclaration())
         {
-            scope = scx ? scx : new Scope(*sc);
+            scope = scx ? scx : sc->copy();
             scope->setNoFree();
         }
         else if (storage_class & (STCconst | STCimmutable | STCmanifest) ||
@@ -1498,7 +1501,7 @@ Lnomatch:
             }
             else
             {
-                scope = scx ? scx : new Scope(*sc);
+                scope = scx ? scx : sc->copy();
                 scope->setNoFree();
             }
         }

@@ -2112,7 +2112,6 @@ Type *TypeFunction::substWildTo(unsigned)
     t->isref = isref;
     t->iswild = 0;
     t->trust = trust;
-    t->gcuse = gcuse;
     t->fargs = fargs;
     return t->merge();
 }
@@ -5174,7 +5173,6 @@ TypeFunction::TypeFunction(Parameters *parameters, Type *treturn, int varargs, L
         this->isref = true;
 
     this->trust = TRUSTdefault;
-    this->gcuse = GCUSEdefault;
     if (stc & STCsafe)
         this->trust = TRUSTsafe;
     if (stc & STCsystem)
@@ -5205,7 +5203,6 @@ Type *TypeFunction::syntaxCopy()
     t->isref = isref;
     t->iswild = iswild;
     t->trust = trust;
-    t->gcuse = gcuse;
     t->fargs = fargs;
     return t;
 }
@@ -6187,7 +6184,6 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
         tf->isproperty = t->isproperty;
         tf->isref = t->isref;
         tf->trust = t->trust;
-        tf->gcuse = t->gcuse;
         tf->iswild = t->iswild;
 
         if (stc & STCpure)
@@ -7873,14 +7869,13 @@ Expression *TypeStruct::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
     }
 
     if (e->op == TOKdotexp)
-    {   DotExp *de = (DotExp *)e;
-
+    {
+        DotExp *de = (DotExp *)e;
         if (de->e1->op == TOKimport)
         {
             assert(0);  // cannot find a case where this happens; leave
                         // assert in until we do
             ScopeExp *se = (ScopeExp *)de->e1;
-
             s = se->sds->search(e->loc, ident);
             e = de->e1;
             goto L1;
@@ -7948,18 +7943,21 @@ L1:
 
     TemplateInstance *ti = s->isTemplateInstance();
     if (ti)
-    {   if (!ti->semanticRun)
+    {
+        if (!ti->semanticRun)
         {
-            if (global.errors)
-                return new ErrorExp();  // TemplateInstance::semantic() will fail anyway
             ti->semantic(sc);
+            if (!ti->inst || ti->errors)    // if template failed to expand
+                return new ErrorExp();
         }
         s = ti->inst->toAlias();
         if (!s->isTemplateInstance())
             goto L1;
-        Expression *de = new DotExp(e->loc, e, new ScopeExp(e->loc, ti));
-        de->type = e->type;
-        return de;
+        if (e->op == TOKtype)
+            e = new ScopeExp(e->loc, ti);
+        else
+            e = new DotExp(e->loc, e, new ScopeExp(e->loc, ti));
+        return e->semantic(sc);
     }
 
     if (s->isImport() || s->isModule() || s->isPackage())
@@ -8031,9 +8029,9 @@ L1:
         if (v->toParent() != sym)
             sym->error(e->loc, "'%s' is not a member", v->toChars());
 
+#if 0
         // *(&e + offset)
         accessCheck(e->loc, sc, e, d);
-#if 0
         Expression *b = new AddrExp(e->loc, e);
         b->type = e->type->pointerTo();
         b = new AddExp(e->loc, b, new IntegerExp(e->loc, v->offset, Type::tint32));
@@ -8358,12 +8356,11 @@ Expression *TypeClass::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
 #endif
 
     if (e->op == TOKdotexp)
-    {   DotExp *de = (DotExp *)e;
-
+    {
+        DotExp *de = (DotExp *)e;
         if (de->e1->op == TOKimport)
         {
             ScopeExp *se = (ScopeExp *)de->e1;
-
             s = se->sds->search(e->loc, ident);
             e = de->e1;
             goto L1;
@@ -8424,6 +8421,12 @@ Expression *TypeClass::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
         e = e->semantic(sc2);
         sc2->pop();
         return e;
+    }
+
+    // Bugzilla 12543
+    if (ident == Id::__sizeof || ident == Id::__xalignof || ident == Id::mangleof)
+    {
+        return Type::getProperty(e->loc, ident, 0);
     }
 
     s = sym->search(e->loc, ident);
@@ -8577,18 +8580,21 @@ L1:
 
     TemplateInstance *ti = s->isTemplateInstance();
     if (ti)
-    {   if (!ti->semanticRun)
+    {
+        if (!ti->semanticRun)
         {
-            if (global.errors)
-                return new ErrorExp();  // TemplateInstance::semantic() will fail anyway
             ti->semantic(sc);
+            if (!ti->inst || ti->errors)    // if template failed to expand
+                return new ErrorExp();
         }
         s = ti->inst->toAlias();
         if (!s->isTemplateInstance())
             goto L1;
-        Expression *de = new DotExp(e->loc, e, new ScopeExp(e->loc, ti));
-        de->type = e->type;
-        return de;
+        if (e->op == TOKtype)
+            e = new ScopeExp(e->loc, ti);
+        else
+            e = new DotExp(e->loc, e, new ScopeExp(e->loc, ti));
+        return e->semantic(sc);
     }
 
     if (s->isImport() || s->isModule() || s->isPackage())
@@ -9084,13 +9090,13 @@ Type *TypeSlice::syntaxCopy()
 Type *TypeSlice::semantic(Loc loc, Scope *sc)
 {
     //printf("TypeSlice::semantic() %s\n", toChars());
-    next = next->semantic(loc, sc);
-    transitive();
-    //printf("next: %s\n", next->toChars());
+    Type *tn = next->semantic(loc, sc);
+    //printf("next: %s\n", tn->toChars());
 
-    Type *tbn = next->toBasetype();
+    Type *tbn = tn->toBasetype();
     if (tbn->ty != Ttuple)
-    {   error(loc, "can only slice tuple types, not %s", tbn->toChars());
+    {
+        error(loc, "can only slice tuple types, not %s", tbn->toChars());
         return Type::terror;
     }
     TypeTuple *tt = (TypeTuple *)tbn;
@@ -9104,19 +9110,23 @@ Type *TypeSlice::semantic(Loc loc, Scope *sc)
     uinteger_t i2 = upr->toUInteger();
 
     if (!(i1 <= i2 && i2 <= tt->arguments->dim))
-    {   error(loc, "slice [%llu..%llu] is out of range of [0..%u]", i1, i2, tt->arguments->dim);
+    {
+        error(loc, "slice [%llu..%llu] is out of range of [0..%u]", i1, i2, tt->arguments->dim);
         return Type::terror;
     }
+
+    next = tn;
+    transitive();
 
     Parameters *args = new Parameters;
     args->reserve((size_t)(i2 - i1));
     for (size_t i = (size_t)i1; i < (size_t)i2; i++)
-    {   Parameter *arg = (*tt->arguments)[i];
+    {
+        Parameter *arg = (*tt->arguments)[i];
         args->push(arg);
     }
-
-    Type *t = (new TypeTuple(args))->semantic(loc, sc);
-    return t;
+    Type *t = new TypeTuple(args);
+    return t->semantic(loc, sc);
 }
 
 void TypeSlice::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid)

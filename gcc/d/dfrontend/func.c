@@ -255,7 +255,7 @@ public:
 
             Statement *sexception = new DtorExpStatement(Loc(), fd->nrvo_var->edtor, fd->nrvo_var);
             Statement *handler = sexception;
-            if (sexception->blockExit(false) & BEfallthru)
+            if (sexception->blockExit(fd, false) & BEfallthru)
             {
                 ThrowStatement *ts = new ThrowStatement(Loc(), new IdentifierExp(Loc(), id));
                 ts->internalThrow = true;
@@ -1161,7 +1161,7 @@ Ldone:
     /* Save scope for possible later use (if we need the
      * function internals)
      */
-    scope = new Scope(*sc);
+    scope = sc->copy();
     scope->setNoFree();
 
     static bool printedMain = false;  // semantic might run more than once
@@ -1321,7 +1321,8 @@ void FuncDeclaration::semantic3(Scope *sc)
         {
 #ifndef IN_GCC
             if (global.params.is64bit && !global.params.isWindows)
-            {   // Declare save area for varargs registers
+            {
+                // Declare save area for varargs registers
                 Type *t = new TypeIdentifier(loc, Id::va_argsave_t);
                 t = t->semantic(loc, sc);
                 if (t == Type::terror)
@@ -1341,7 +1342,8 @@ void FuncDeclaration::semantic3(Scope *sc)
 #endif
 
             if (f->linkage == LINKd)
-            {   // Declare _arguments[]
+            {
+                // Declare _arguments[]
                 v_arguments = new VarDeclaration(Loc(), Type::typeinfotypelist->type, Id::_arguments_typeinfo, NULL);
                 v_arguments->storage_class |= STCtemp | STCparameter;
                 v_arguments->semantic(sc2);
@@ -1357,7 +1359,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 _arguments->parent = this;
             }
             if (f->linkage == LINKd || (f->parameters && Parameter::dim(f->parameters)))
-            {   // Declare _argptr
+            {
+                // Declare _argptr
                 Type *t = Type::tvalist;
                 argptr = new VarDeclaration(Loc(), t, Id::_argptr, NULL);
                 argptr->storage_class |= STCtemp;
@@ -1372,14 +1375,17 @@ void FuncDeclaration::semantic3(Scope *sc)
         if (f->parameters)
         {
             for (size_t i = 0; i < f->parameters->dim; i++)
-            {   Parameter *arg = (*f->parameters)[i];
+            {
+                Parameter *arg = (*f->parameters)[i];
 
                 //printf("[%d] arg->type->ty = %d %s\n", i, arg->type->ty, arg->type->toChars());
                 if (arg->type->ty == Ttuple)
-                {   TypeTuple *t = (TypeTuple *)arg->type;
+                {
+                    TypeTuple *t = (TypeTuple *)arg->type;
                     size_t dim = Parameter::dim(t->arguments);
                     for (size_t j = 0; j < dim; j++)
-                    {   Parameter *narg = Parameter::getNth(t->arguments, j);
+                    {
+                        Parameter *narg = Parameter::getNth(t->arguments, j);
                         narg->storageClass = arg->storageClass;
                     }
                 }
@@ -1392,7 +1398,8 @@ void FuncDeclaration::semantic3(Scope *sc)
          */
         size_t nparams = Parameter::dim(f->parameters);
         if (nparams)
-        {   /* parameters[] has all the tuples removed, as the back end
+        {
+            /* parameters[] has all the tuples removed, as the back end
              * doesn't know about tuples
              */
             parameters = new VarDeclarations();
@@ -1433,17 +1440,20 @@ void FuncDeclaration::semantic3(Scope *sc)
         if (f->parameters)
         {
             for (size_t i = 0; i < f->parameters->dim; i++)
-            {   Parameter *arg = (*f->parameters)[i];
+            {
+                Parameter *arg = (*f->parameters)[i];
 
                 if (!arg->ident)
                     continue;                   // never used, so ignore
                 if (arg->type->ty == Ttuple)
-                {   TypeTuple *t = (TypeTuple *)arg->type;
+                {
+                    TypeTuple *t = (TypeTuple *)arg->type;
                     size_t dim = Parameter::dim(t->arguments);
                     Objects *exps = new Objects();
                     exps->setDim(dim);
                     for (size_t j = 0; j < dim; j++)
-                    {   Parameter *narg = Parameter::getNth(t->arguments, j);
+                    {
+                        Parameter *narg = Parameter::getNth(t->arguments, j);
                         assert(narg->ident);
                         VarDeclaration *v = sc2->search(Loc(), narg->ident, NULL)->isVarDeclaration();
                         assert(v);
@@ -1488,7 +1498,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
             }
             else
-            {   // Call invariant virtually
+            {
+                // Call invariant virtually
                 Expression *v = new ThisExp(Loc());
                 v->type = vthis->type;
                 if (ad->isStructDeclaration())
@@ -1528,7 +1539,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
             }
             else
-            {   // Call invariant virtually
+            {
+                // Call invariant virtually
                 Expression *v = new ThisExp(Loc());
                 v->type = vthis->type;
                 if (ad->isStructDeclaration())
@@ -1542,7 +1554,8 @@ void FuncDeclaration::semantic3(Scope *sc)
         if (fensure || addPostInvariant())
         {
             if ((fensure && global.params.useOut) || fpostinv)
-            {   returnLabel = new LabelDsymbol(Id::returnLabel);
+            {
+                returnLabel = new LabelDsymbol(Id::returnLabel);
             }
 
             // scope of out contract (need for vresult->semantic)
@@ -1558,12 +1571,14 @@ void FuncDeclaration::semantic3(Scope *sc)
             sc2 = sc2->push(sym);
 
             AggregateDeclaration *ad2 = isAggregateMember2();
+            unsigned *fieldinit = NULL;
 
             /* If this is a class constructor
              */
             if (ad2 && isCtorDeclaration())
             {
-                sc2->fieldinit = (unsigned *)mem.malloc(sizeof(unsigned) * ad2->fields.dim);
+                fieldinit = (unsigned *)mem.malloc(sizeof(unsigned) * ad2->fields.dim);
+                sc2->fieldinit = fieldinit;
                 sc2->fieldinit_dim = ad2->fields.dim;
                 for (size_t i = 0; i < ad2->fields.dim; i++)
                 {
@@ -1599,7 +1614,8 @@ void FuncDeclaration::semantic3(Scope *sc)
             assert(type == f);
 
             if (isStaticCtorDeclaration())
-            {   /* It's a static constructor. Ensure that all
+            {
+                /* It's a static constructor. Ensure that all
                  * ctor consts were initialized.
                  */
 
@@ -1612,8 +1628,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 else
                 {
                     for (size_t i = 0; i < pd->members->dim; i++)
-                    {   Dsymbol *s = (*pd->members)[i];
-
+                    {
+                        Dsymbol *s = (*pd->members)[i];
                         s->checkCtorConstInit();
                     }
                 }
@@ -1621,7 +1637,7 @@ void FuncDeclaration::semantic3(Scope *sc)
 
             if (fbody->isErrorStatement())
                 ;
-            else if (isCtorDeclaration() && ad2)
+            else if (ad2 && isCtorDeclaration())
             {
                 ClassDeclaration *cd = ad2->isClassDeclaration();
 
@@ -1657,7 +1673,6 @@ void FuncDeclaration::semantic3(Scope *sc)
                         }
                     }
                 }
-                mem.free(sc2->fieldinit);
                 sc2->fieldinit = NULL;
                 sc2->fieldinit_dim = 0;
 
@@ -1685,7 +1700,7 @@ void FuncDeclaration::semantic3(Scope *sc)
 
                 // Check for errors related to 'nothrow'.
                 int nothrowErrors = global.errors;
-                int blockexit = fbody->blockExit(f->isnothrow);
+                int blockexit = fbody->blockExit(this, f->isnothrow);
                 if (f->isnothrow && (global.errors != nothrowErrors) )
                     ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                 if (flags & FUNCFLAGnothrowInprocess)
@@ -1707,7 +1722,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
             }
             else if (fes)
-            {   // For foreach(){} body, append a return 0;
+            {
+                // For foreach(){} body, append a return 0;
                 Expression *e = new IntegerExp(0);
                 Statement *s = new ReturnStatement(Loc(), e);
                 fbody = new CompoundStatement(Loc(), fbody, s);
@@ -1723,7 +1739,7 @@ void FuncDeclaration::semantic3(Scope *sc)
             {
                 // Check for errors related to 'nothrow'.
                 int nothrowErrors = global.errors;
-                int blockexit = fbody->blockExit(f->isnothrow);
+                int blockexit = fbody->blockExit(this, f->isnothrow);
                 if (f->isnothrow && (global.errors != nothrowErrors) )
                     ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                 if (flags & FUNCFLAGnothrowInprocess)
@@ -1736,11 +1752,13 @@ void FuncDeclaration::semantic3(Scope *sc)
                 if (type->nextOf()->ty != Tvoid)
                 {
                     if (offend)
-                    {   Expression *e;
+                    {
+                        Expression *e;
                         error("no return exp; or assert(0); at end of function");
                         if (global.params.useAssert &&
                             !global.params.useInline)
-                        {   /* Add an assert(0, msg); where the missing return
+                        {
+                            /* Add an assert(0, msg); where the missing return
                              * should be.
                              */
                             e = new AssertExp(
@@ -1759,6 +1777,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
             }
 
+            if (fieldinit)
+                mem.free(fieldinit);
             sc2 = sc2->pop();
         }
 
@@ -1769,7 +1789,8 @@ void FuncDeclaration::semantic3(Scope *sc)
          * [out] postconditions.
          */
         if (freq)
-        {   /* frequire is composed of the [in] contracts
+        {
+            /* frequire is composed of the [in] contracts
              */
             ScopeDsymbol *sym = new ScopeDsymbol();
             sym->parent = sc2->scopesym;
@@ -1789,7 +1810,8 @@ void FuncDeclaration::semantic3(Scope *sc)
         }
 
         if (fens)
-        {   /* fensure is composed of the [out] contracts
+        {
+            /* fensure is composed of the [out] contracts
              */
             if (type->nextOf()->ty == Tvoid && outId)
             {
@@ -1818,12 +1840,16 @@ void FuncDeclaration::semantic3(Scope *sc)
                 fens = NULL;
         }
 
+        if (fbody && fbody->isErrorStatement())
+            ;
+        else
         {
             Statements *a = new Statements();
 
             // Merge in initialization of 'out' parameters
             if (parameters)
-            {   for (size_t i = 0; i < parameters->dim; i++)
+            {
+                for (size_t i = 0; i < parameters->dim; i++)
                 {
                     VarDeclaration *v = (*parameters)[i];
                     if (v->storage_class & STCout)
@@ -1839,7 +1865,8 @@ void FuncDeclaration::semantic3(Scope *sc)
             }
 
             if (argptr)
-            {   // Initialize _argptr
+            {
+                // Initialize _argptr
 #ifdef IN_GCC
                 // Handled in FuncDeclaration::toObjFile
                 v_argptr = argptr;
@@ -1847,7 +1874,8 @@ void FuncDeclaration::semantic3(Scope *sc)
 #else
                 Type *t = argptr->type;
                 if (global.params.is64bit && !global.params.isWindows)
-                {   // Initialize _argptr to point to v_argsave
+                {
+                    // Initialize _argptr to point to v_argsave
                     Expression *e1 = new VarExp(Loc(), argptr);
                     Expression *e = new SymOffExp(Loc(), v_argsave, 6*8 + 8*16);
                     e->type = argptr->type;
@@ -1856,7 +1884,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                     a->push(new ExpStatement(Loc(), e));
                 }
                 else
-                {   // Initialize _argptr to point past non-variadic arg
+                {
+                    // Initialize _argptr to point past non-variadic arg
                     VarDeclaration *p;
                     unsigned offset = 0;
                     Expression *e;
@@ -1885,8 +1914,9 @@ void FuncDeclaration::semantic3(Scope *sc)
                     else
                         p = v_arguments;            // last parameter is _arguments[]
                     if (global.params.is64bit && global.params.isWindows)
-                    {   offset += Target::ptrsize;
-                    if (p->storage_class & STClazy || p->type->size() > Target::ptrsize)
+                    {
+                        offset += Target::ptrsize;
+                        if (p->storage_class & STClazy || p->type->size() > Target::ptrsize)
                         {
                             /* Necessary to offset the extra level of indirection the Win64
                              * ABI demands
@@ -1968,7 +1998,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                     // Create: return vresult;
                     Expression *e = new VarExp(Loc(), vresult);
                     if (tintro)
-                    {   e = e->implicitCastTo(sc, tintro->nextOf());
+                    {
+                        e = e->implicitCastTo(sc, tintro->nextOf());
                         e = e->semantic(sc);
                     }
                     ReturnStatement *s = new ReturnStatement(Loc(), e);
@@ -1976,7 +2007,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
             }
             if (isMain() && type->nextOf()->ty == Tvoid)
-            {   // Add a return 0; statement
+            {
+                // Add a return 0; statement
                 Statement *s = new ReturnStatement(Loc(), new IntegerExp(0));
                 a->push(s);
             }
@@ -1985,7 +2017,8 @@ void FuncDeclaration::semantic3(Scope *sc)
             /* Append destructor calls for parameters as finally blocks.
              */
             if (parameters)
-            {   for (size_t i = 0; i < parameters->dim; i++)
+            {
+                for (size_t i = 0; i < parameters->dim; i++)
                 {
                     VarDeclaration *v = (*parameters)[i];
 
@@ -1997,16 +2030,17 @@ void FuncDeclaration::semantic3(Scope *sc)
 
                     Expression *e = v->edtor;
                     if (e)
-                    {   Statement *s = new ExpStatement(Loc(), e);
+                    {
+                        Statement *s = new ExpStatement(Loc(), e);
                         s = s->semantic(sc2);
                         int nothrowErrors = global.errors;
                         bool isnothrow = f->isnothrow & !(flags & FUNCFLAGnothrowInprocess);
-                        int blockexit = s->blockExit(isnothrow);
+                        int blockexit = s->blockExit(this, isnothrow);
                         if (f->isnothrow && (global.errors != nothrowErrors) )
                             ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                         if (flags & FUNCFLAGnothrowInprocess && blockexit & BEthrow)
                             f->isnothrow = false;
-                        if (fbody->blockExit(f->isnothrow) == BEfallthru)
+                        if (fbody->blockExit(this, f->isnothrow) == BEfallthru)
                             fbody = new CompoundStatement(Loc(), fbody, s);
                         else
                             fbody = new TryFinallyStatement(Loc(), fbody, s);
@@ -2017,7 +2051,8 @@ void FuncDeclaration::semantic3(Scope *sc)
             flags &= ~FUNCFLAGnothrowInprocess;
 
             if (isSynchronized())
-            {   /* Wrap the entire function body in a synchronized statement
+            {
+                /* Wrap the entire function body in a synchronized statement
                  */
                 ClassDeclaration *cd = isThis() ? isThis()->isClassDeclaration() : parent->isClassDeclaration();
 
@@ -2035,11 +2070,13 @@ void FuncDeclaration::semantic3(Scope *sc)
                     {
                         Expression *vsync;
                         if (isStatic())
-                        {   // The monitor is in the ClassInfo
+                        {
+                            // The monitor is in the ClassInfo
                             vsync = new DotIdExp(loc, new DsymbolExp(loc, cd), Id::classinfo);
                         }
                         else
-                        {   // 'this' is the monitor
+                        {
+                            // 'this' is the monitor
                             vsync = new VarExp(loc, vthis);
                         }
                         fbody = new PeelStatement(fbody);       // don't redo semantic()
@@ -2086,15 +2123,8 @@ void FuncDeclaration::semantic3(Scope *sc)
     if (fbody)
         checkGC(this, fbody);
 
-    if (needsClosure() && setGCUse(loc, "Using closure causes gc allocation"))
-        error("Can not use closures in @nogc code");
-
-    if (flags & FUNCFLAGgcuseInprocess)
-    {
-        flags &= ~FUNCFLAGgcuseInprocess;
-        if (type == f) f = (TypeFunction *)f->copy();
-        f->gcuse = GCUSEnogc;
-    }
+    if (needsClosure())
+        printGCUsage(loc, "Using closure causes gc allocation");
 
     // reset deco to apply inference result to mangled name
     if (f != type)
@@ -2115,7 +2145,7 @@ void FuncDeclaration::semantic3(Scope *sc)
      * Otherwise, error gagging should be temporarily ungagged by functionSemantic3.
      */
     semanticRun = PASSsemantic3done;
-    semantic3Errors = (global.errors != nerrors);
+    semantic3Errors = (global.errors != nerrors) || (fbody && fbody->isErrorStatement());
     if (type->ty == Terror)
         errors = true;
     //printf("-FuncDeclaration::semantic3('%s.%s', sc = %p, loc = %s)\n", parent->toChars(), toChars(), sc, loc.toChars());
@@ -3544,52 +3574,6 @@ bool FuncDeclaration::setUnsafe()
 }
 
 /**************************************
- * Return true if the function is marked
- * as @nogc and therefore must not allocate.
- */
-bool FuncDeclaration::isNOGC()
-{
-    assert(type->ty == Tfunction);
-    if (flags & FUNCFLAGgcuseInprocess)
-        setGCUse();
-    return ((TypeFunction *)type)->gcuse == GCUSEnogc;
-}
-
-/**************************************
- * Mark function as using GC, warn on -vgc, return
- * true if GC access is an error (@nogc)
- */
-bool FuncDeclaration::setGCUse(Loc loc, const char* warn)
-{
-    if (setGCUse())
-    {
-        return true;
-    }
-    //Only warn about errors in 'root' modules
-    else if (global.params.vgc && getModule() && getModule()->isRoot()
-        && !inUnittest())
-    {
-        fprintf(global.stdmsg, "%s: vgc: %s\n", loc.toChars(), warn);
-    }
-    return false;
-}
-
-/**************************************
- * Same as above, but do not warn on -vgc
- */
-bool FuncDeclaration::setGCUse()
-{
-    if (flags & FUNCFLAGgcuseInprocess)
-    {
-        flags &= ~FUNCFLAGgcuseInprocess;
-        ((TypeFunction *)type)->gcuse = GCUSEgc;
-    }
-    else if (isNOGC())
-        return true;
-    return false;
-}
-
-/**************************************
  * Returns an indirect type one step from t.
  */
 
@@ -4285,6 +4269,46 @@ bool FuncLiteralDeclaration::addPreInvariant()
 bool FuncLiteralDeclaration::addPostInvariant()
 {
     return false;
+}
+
+/*******************************
+ * Modify all expression type of return statements to tret.
+ *
+ * On function literals, return type may be modified based on the context type
+ * after its semantic3 is done, in FuncExp::implicitCastTo.
+ *
+ *  A function() dg = (){ return new B(); } // OK if is(B : A) == true
+ *
+ * If B to A conversion is convariant that requires offseet adjusting,
+ * all return statements should be adjusted to return expressions typed A.
+ */
+void FuncLiteralDeclaration::modifyReturns(Scope *sc, Type *tret)
+{
+    class RetWalker : public StatementRewriteWalker
+    {
+    public:
+        Scope *sc;
+        Type *tret;
+        FuncLiteralDeclaration *fld;
+
+        void visit(ReturnStatement *s)
+        {
+            Expression *exp = s->exp;
+            if (exp && !exp->type->equals(tret))
+            {
+                s->exp = exp->castTo(sc, tret);
+            }
+        }
+    };
+
+    if (semanticRun < PASSsemantic3done)
+        return;
+
+    RetWalker w;
+    w.sc = sc;
+    w.tret = tret;
+    w.fld = this;
+    fbody->accept(&w);
 }
 
 const char *FuncLiteralDeclaration::kind()

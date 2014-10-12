@@ -1648,7 +1648,7 @@ DelegateExp::toElem (IRState *irs)
       while (!owner->isTemplateInstance() && owner->toParent())
 	owner = owner->toParent();
       if (owner->isTemplateInstance() || owner == irs->mod)
-	irs->func->deferred.push (func);
+	irs->deferred.safe_push(func);
     }
 
   if (t->ty == Tclass || t->ty == Tstruct)
@@ -1865,7 +1865,7 @@ FuncExp::toElem (IRState *irs)
 
   // Emit after current function body has finished.
   if (irs->func)
-    irs->func->deferred.push (fd);
+    irs->deferred.safe_push(fd);
 
   // If nested, this will be a trampoline...
   if (fd->isNested())

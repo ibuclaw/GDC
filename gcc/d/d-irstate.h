@@ -114,6 +114,8 @@ struct IRState
   // Static chain of function, for D2, this is a closure.
   tree sthis;
 
+  auto_vec<FuncDeclaration *> deferred;
+
   IRState *startFunction (FuncDeclaration *decl);
   void endFunction (void);
 

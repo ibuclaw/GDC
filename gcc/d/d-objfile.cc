@@ -137,7 +137,7 @@ Dsymbol::toObjFile(bool)
 	{
 	  Declaration *d = ((DsymbolExp *) o)->s->isDeclaration();
 	  if (d)
-	    d->toObjFile (0);
+	    d->toObjFile(false);
 	}
     }
 }
@@ -153,7 +153,7 @@ AttribDeclaration::toObjFile(bool)
   for (size_t i = 0; i < d->dim; i++)
     {
       Dsymbol *s = (*d)[i];
-      s->toObjFile (0);
+      s->toObjFile(false);
     }
 }
 
@@ -168,7 +168,7 @@ PragmaDeclaration::toObjFile(bool)
 	 warning (loc, "pragma(startaddress) not implemented");
     }
 
-  AttribDeclaration::toObjFile (0);
+  AttribDeclaration::toObjFile(false);
 }
 
 void
@@ -207,15 +207,15 @@ StructDeclaration::toObjFile(bool)
       Dsymbol *member = (*members)[i];
       // There might be static ctors in the members, and they cannot
       // be put in separate object files.
-      member->toObjFile (0);
+      member->toObjFile(false);
     }
 
   // Put out xopEquals and xopCmp
   if (xeq && xeq != xerreq)
-    xeq->toObjFile (0);
+    xeq->toObjFile(false);
 
   if (xcmp && xcmp != xerrcmp)
-    xcmp->toObjFile (0);
+    xcmp->toObjFile(false);
 }
 
 void
@@ -237,7 +237,7 @@ ClassDeclaration::toObjFile(bool)
   for (size_t i = 0; i < members->dim; i++)
     {
       Dsymbol *member = (*members)[i];
-      member->toObjFile (0);
+      member->toObjFile(false);
     }
 
   // Generate C symbols
@@ -595,7 +595,7 @@ InterfaceDeclaration::toObjFile(bool)
   for (size_t i = 0; i < members->dim; i++)
     {
       Dsymbol *member = (*members)[i];
-      member->toObjFile (0);
+      member->toObjFile(false);
     }
 
   // Generate C symbols
@@ -603,7 +603,7 @@ InterfaceDeclaration::toObjFile(bool)
 
   // Put out the TypeInfo
   type->genTypeInfo(NULL);
-  type->vtinfo->toObjFile (0);
+  type->vtinfo->toObjFile(false);
 
   /* Put out the ClassInfo.
    * The layout is:
@@ -756,7 +756,7 @@ VarDeclaration::toObjFile(bool)
 
   if (aliassym)
     {
-      toAlias()->toObjFile (0);
+      toAlias()->toObjFile(false);
       return;
     }
 
@@ -878,14 +878,14 @@ TemplateInstance::toObjFile(bool)
   for (size_t i = 0; i < members->dim; i++)
     {
       Dsymbol *s = (*members)[i];
-      s->toObjFile (0);
+      s->toObjFile(false);
     }
 }
 
 void
 TemplateMixin::toObjFile(bool)
 {
-  TemplateInstance::toObjFile (0);
+  TemplateInstance::toObjFile(false);
 }
 
 void
@@ -1093,9 +1093,9 @@ output_declaration_p (Dsymbol *dsym)
 	      if (fdp->semantic3Errors)
 		return false;
 
-	      if (fdp->isUnitTestDeclaration())
+	      if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
 		{
-		  fdp->deferred.push(fd);
+		  udp->deferredNested.push(fd);
 		  return false;
 		}
 	    }
@@ -1362,10 +1362,19 @@ FuncDeclaration::toObjFile(bool)
     d_finish_function (this);
 
   // Process all deferred nested functions.
-  for (size_t i = 0; i < this->deferred.dim; ++i)
+  for (size_t i = 0; i < irs->deferred.length(); ++i)
     {
-      FuncDeclaration *fd = this->deferred[i];
-      fd->toObjFile (0);
+      FuncDeclaration *fd = irs->deferred[i];
+      fd->toObjFile(false);
+    }
+
+  if (UnitTestDeclaration *ud = this->isUnitTestDeclaration())
+    {
+      for (size_t i = 0; i < ud->deferredNested.dim; ++i)
+	{
+	  FuncDeclaration *fd = ud->deferredNested[i];
+	  fd->toObjFile(false);
+	}
     }
 
   current_function_decl = old_current_function_decl;
@@ -1389,7 +1398,7 @@ Module::genobjfile(bool)
       for (size_t i = 0; i < members->dim; i++)
 	{
 	  Dsymbol *dsym = (*members)[i];
-	  dsym->toObjFile (0);
+	  dsym->toObjFile(false);
 	}
     }
 
@@ -2142,7 +2151,7 @@ build_simple_function (const char *name, tree expr, bool static_ctor)
   // %% Maybe remove the identifier
   WrappedExp *body = new WrappedExp (mod->loc, expr, Type::tvoid);
   func->fbody = new ExpStatement (mod->loc, body);
-  func->toObjFile (0);
+  func->toObjFile(false);
 
   return func;
 }

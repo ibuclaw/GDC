@@ -39,6 +39,7 @@
 #include "aav.h"
 
 bool isArrayOpValid(Expression *e);
+bool isNonAssignmentArrayOp(Expression *e);
 Expression *createTypeInfoArray(Scope *sc, Expression *args[], size_t dim);
 Expression *expandVar(int result, VarDeclaration *v);
 void functionToBufferWithIdent(TypeFunction *t, OutBuffer *buf, const char *ident);
@@ -971,13 +972,14 @@ bool arrayExpressionSemantic(Expressions *exps, Scope *sc)
  * Perform canThrow() on an array of Expressions.
  */
 
-int arrayExpressionCanThrow(Expressions *exps, bool mustNotThrow)
+int arrayExpressionCanThrow(Expressions *exps, FuncDeclaration *func, bool mustNotThrow)
 {
     if (exps)
     {
         for (size_t i = 0; i < exps->dim; i++)
-        {   Expression *e = (*exps)[i];
-            if (e && canThrow(e, mustNotThrow))
+        {
+            Expression *e = (*exps)[i];
+            if (e && canThrow(e, func, mustNotThrow))
                 return 1;
         }
     }
@@ -1615,6 +1617,12 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
             arg = new ErrorExp();
             goto L3;
         }
+        if (isNonAssignmentArrayOp(arg))
+        {
+            arg->error("array operation %s without assignment not implemented", arg->toChars());
+            arg = new ErrorExp();
+            goto L3;
+        }
 
         if (i < nparams)
         {
@@ -2191,7 +2199,7 @@ void Expression::checkDeprecated(Scope *sc, Dsymbol *s)
 void Expression::checkPurity(Scope *sc, FuncDeclaration *f)
 {
 #if 1
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEdebug))
+    if (sc->func && sc->func != f && !sc->intypeof && !(sc->flags & SCOPEdebug))
     {
         /* Given:
          * void f()
@@ -2390,7 +2398,7 @@ void Expression::checkPurity(Scope *sc, VarDeclaration *v)
 
 void Expression::checkSafety(Scope *sc, FuncDeclaration *f)
 {
-    if (sc->func && !sc->intypeof &&
+    if (sc->func && sc->func != f && !sc->intypeof &&
         !(sc->flags & SCOPEctfe) &&
         !f->isSafe() && !f->isTrusted())
     {
@@ -5575,6 +5583,7 @@ Expression *FuncExp::semantic(Scope *sc)
 
     sc = sc->startCTFE();       // just create new scope
     sc->flags &= ~SCOPEctfe;    // temporary stop CTFE
+    sc->protection = PROTpublic;    // Bugzilla 12506
 
     if (!type || type == Type::tvoid)
     {
@@ -5590,12 +5599,14 @@ Expression *FuncExp::semantic(Scope *sc)
 
         // Set target of return type inference
         if (fd->treq && !fd->type->nextOf())
-        {   TypeFunction *tfv = NULL;
+        {
+            TypeFunction *tfv = NULL;
             if (fd->treq->ty == Tdelegate ||
                 (fd->treq->ty == Tpointer && fd->treq->nextOf()->ty == Tfunction))
                 tfv = (TypeFunction *)fd->treq->nextOf();
             if (tfv)
-            {   TypeFunction *tfl = (TypeFunction *)fd->type;
+            {
+                TypeFunction *tfl = (TypeFunction *)fd->type;
                 tfl->next = tfv->nextOf();
             }
         }
@@ -5634,7 +5645,8 @@ Expression *FuncExp::semantic(Scope *sc)
         {
             if (fd->type && fd->type->ty == Tfunction && !fd->type->nextOf())
                 ((TypeFunction *)fd->type)->next = Type::terror;
-            return new ErrorExp();
+            e = new ErrorExp();
+            goto Ldone;
         }
 
         // Type is a "delegate to" or "pointer to" the function literal
@@ -10277,7 +10289,8 @@ Expression *IndexExp::semantic(Scope *sc)
         }
 
         case Taarray:
-        {   TypeAArray *taa = (TypeAArray *)t1;
+        {
+            TypeAArray *taa = (TypeAArray *)t1;
             /* We can skip the implicit conversion if they differ only by
              * constness (Bugzilla 2684, see also bug 2954b)
              */
@@ -10301,7 +10314,8 @@ Expression *IndexExp::semantic(Scope *sc)
             TypeTuple *tup;
 
             if (e1->op == TOKtuple)
-            {   te = (TupleExp *)e1;
+            {
+                te = (TupleExp *)e1;
                 length = te->exps->dim;
             }
             else if (e1->op == TOKtype)
@@ -10327,7 +10341,7 @@ Expression *IndexExp::semantic(Scope *sc)
             {
                 error("array index [%llu] is outside array bounds [0 .. %llu]",
                         index, (ulonglong)length);
-                e = e1;
+                return new ErrorExp();
             }
             break;
         }
@@ -10582,6 +10596,7 @@ Expression *AssignExp::semantic(Scope *sc)
             // No opIndexAssign found yet, but there might be an alias this to try.
             if (ad->aliasthis && t1 != ae->att1)
             {
+                Expression *e2x = e2;
                 ArrayExp *aex = (ArrayExp *)ae->copy();
                 if (!aex->att1 && t1->checkAliasThisRec())
                     aex->att1 = t1;
@@ -10591,6 +10606,7 @@ Expression *AssignExp::semantic(Scope *sc)
                 if (ex)
                     return ex;
                 this->e1 = ae;  // restore
+                this->e2 = e2x; // restore
             }
 
         Lfallback:
@@ -10651,6 +10667,7 @@ Expression *AssignExp::semantic(Scope *sc)
             // No opSliceAssign found yet, but there might be an alias this to try.
             if (ad->aliasthis && t1 != ae->att1)
             {
+                Expression *e2x = e2;
                 SliceExp *aex = (SliceExp *)ae->copy();
                 if (!aex->att1 && t1->checkAliasThisRec())
                     aex->att1 = t1;
@@ -10660,6 +10677,7 @@ Expression *AssignExp::semantic(Scope *sc)
                 if (ex)
                     return ex;
                 this->e1 = ae;  // restore
+                this->e2 = e2x; // restore
             }
         }
     }
@@ -11536,6 +11554,11 @@ Expression *CatAssignExp::semantic(Scope *sc)
     e2 = inferType(e2, tb1next);
     if (!e2->rvalue())
         return new ErrorExp();
+    if (isNonAssignmentArrayOp(e2))
+    {
+        error("array operation %s without assignment not implemented", e2->toChars());
+        return new ErrorExp();
+    }
 
     Type *tb2 = e2->type->toBasetype();
 
@@ -11547,7 +11570,8 @@ Expression *CatAssignExp::semantic(Scope *sc)
              tb1next->ty == Tchar || tb1next->ty == Twchar || tb1next->ty == Tdchar))
         )
        )
-    {   // Append array
+    {
+        // Append array
         e1->checkPostblit(sc, tb1next);
         e2 = e2->castTo(sc, e1->type);
         type = e1->type;
@@ -11555,7 +11579,8 @@ Expression *CatAssignExp::semantic(Scope *sc)
     else if ((tb1->ty == Tarray) &&
         e2->implicitConvTo(tb1next)
        )
-    {   // Append element
+    {
+        // Append element
         e2->checkPostblit(sc, tb2);
         e2 = e2->castTo(sc, tb1next);
         e2 = e2->isLvalue() ? callCpCtor(sc, e2) : valueNoDtor(e2);

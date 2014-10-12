@@ -729,6 +729,8 @@ Expression *ctfeInterpret(Expression *e)
     if (e->type == Type::terror)
         return e;
 
+    unsigned olderrors = global.errors;
+
     // This code is outside a function, but still needs to be compiled
     // (there are compiler-generated temporary variables such as __dollar).
     // However, this will only be run once and can then be discarded.
@@ -740,7 +742,10 @@ Expression *ctfeInterpret(Expression *e)
     if (result != EXP_CANT_INTERPRET)
         result = scrubReturnValue(e->loc, result);
     if (result == EXP_CANT_INTERPRET)
+    {
+        assert(global.errors != olderrors);
         result = new ErrorExp();
+    }
     return result;
 }
 
@@ -1026,6 +1031,27 @@ Expression *interpret(FuncDeclaration *fd, InterState *istate, Expressions *argu
             break;
     }
     assert(e != EXP_CONTINUE_INTERPRET && e != EXP_BREAK_INTERPRET);
+
+    /* Bugzilla 7887: If the returned reference is a ref parameter of fd,
+     * peel off the local indirection.
+     */
+    if (tf->isref && e->op == TOKvar)
+    {
+        VarDeclaration *v = ((VarExp *)e)->var->isVarDeclaration();
+        assert(v);
+        if ((v->storage_class & STCref) && (v->storage_class & STCparameter) &&
+            fd == v->parent)
+        {
+            for (size_t i = 0; i < dim; i++)
+            {
+                if ((*fd->parameters)[i] == v)
+                {
+                    e = eargs[i];
+                    break;
+                }
+            }
+        }
+    }
 
     // Leave the function
     --CtfeStatus::callDepth;
@@ -1335,7 +1361,7 @@ public:
             if (tf->isref && istate->caller && istate->caller->awaitingLvalueReturn)
             {
                 // We need to return an lvalue
-                Expression *e = s->exp->interpret(istate, ctfeNeedLvalue);
+                Expression *e = s->exp->interpret(istate, ctfeNeedLvalueRef);
                 if (e == EXP_CANT_INTERPRET)
                     s->error("ref return %s is not yet supported in CTFE", s->exp->toChars());
                 result = e;
@@ -1553,11 +1579,6 @@ public:
                 e = s->condition->interpret(istate);
                 if (exceptionOrCantInterpret(e))
                     break;
-                if (!e->isConst())
-                {
-                    e = EXP_CANT_INTERPRET;
-                    break;
-                }
                 if (e->isBool(false))
                 {
                     e = NULL;
@@ -2543,13 +2564,12 @@ public:
         {
             if (v->toAlias()->isTupleDeclaration())
             {
+                result = NULL;
+
                 // Reserve stack space for all tuple members
                 TupleDeclaration *td = v->toAlias()->isTupleDeclaration();
                 if (!td->objects)
-                {
-                    result = NULL;
                     return;
-                }
                 for(size_t i= 0; i < td->objects->dim; ++i)
                 {
                     RootObject * o = (*td->objects)[i];
@@ -2558,9 +2578,27 @@ public:
                     VarDeclaration *v2 = s ? s->s->isVarDeclaration() : NULL;
                     assert(v2);
                     if (!v2->isDataseg() || v2->isCTFE())
+                    {
                         ctfeStack.push(v2);
+                        if (v2->init)
+                        {
+                            ExpInitializer *ie = v2->init->isExpInitializer();
+                            if (ie)
+                            {
+                                setValue(v2, ie->exp->interpret(istate, goal));
+                            }
+                            else if (v2->init->isVoidInitializer())
+                            {
+                                setValue(v2, voidInitLiteral(v2->type, v2));
+                            }
+                            else
+                            {
+                                e->error("Declaration %s is not yet implemented in CTFE", e->toChars());
+                                result = EXP_CANT_INTERPRET;
+                            }
+                        }
+                    }
                 }
-                result = NULL;
                 return;
             }
             if (!(v->isDataseg() || v->storage_class & STCmanifest) || v->isCTFE())
@@ -3362,6 +3400,7 @@ public:
             interpretCompareCommon(e, &ctfeCmp);
             return;
         default:
+            printf("be = '%s' %s at [%s]\n", Token::toChars(e->op), e->toChars(), e->loc.toChars());
             assert(0);
             return;
         }
