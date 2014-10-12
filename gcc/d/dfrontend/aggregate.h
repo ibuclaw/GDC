@@ -121,11 +121,6 @@ public:
     bool isExport();
     void searchCtor();
 
-    void emitComment(Scope *sc);
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
-
-    const char *mangle(bool isv = false);
-
     PROT prot();
 
     // Back end
@@ -173,12 +168,10 @@ public:
     void semantic(Scope *sc);
     Dsymbol *search(Loc, Identifier *ident, int flags = IgnoreNone);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    const char *mangle(bool isv = false);
     const char *kind();
     void finalizeSize(Scope *sc);
     bool fill(Loc loc, Expressions *elements, bool ctorinit);
     bool isPOD();
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
 
     void toObjFile(int multiobj);                       // compile to .obj file
     void toDt(dt_t **pdt);
@@ -301,8 +294,6 @@ public:
     bool isAbstract();
     virtual int vtblOffset();
     const char *kind();
-    const char *mangle(bool isv = false);
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
 
     void addLocalClass(ClassDeclarations *);
 

@@ -92,7 +92,6 @@ public:
     const char *kind();
     char *toChars();
 
-    void emitComment(Scope *sc);
     PROT prot();
 
     bool evaluateConstraint(TemplateInstance *ti, Scope *sc, Scope *paramscope, Objects *dedtypes, FuncDeclaration *fd);
@@ -341,7 +340,6 @@ public:
     const char *kind();
     bool oneMember(Dsymbol **ps, Identifier *ident);
     char *toChars();
-    const char *mangle(bool isv = false);
     void printInstantiationTrace();
     Identifier *getIdent();
     int compare(RootObject *o);

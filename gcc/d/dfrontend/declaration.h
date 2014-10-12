@@ -136,10 +136,6 @@ public:
 
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
 
-    void emitComment(Scope *sc);
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
-
-    const char *mangle(bool isv = false);
     bool isStatic() { return (storage_class & STCstatic) != 0; }
     virtual bool isDelete();
     virtual bool isDataseg();
@@ -202,14 +198,11 @@ public:
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
     void semantic2(Scope *sc);
-    const char *mangle(bool isv = false);
     const char *kind();
     Type *getType();
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Type *htype;
     Type *hbasetype;
-
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
 
     void toObjFile(int multiobj);                       // compile to .obj file
     void toDebug();
@@ -242,8 +235,6 @@ public:
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     Type *htype;
     Dsymbol *haliassym;
-
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
 
     AliasDeclaration *isAliasDeclaration() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -304,7 +295,6 @@ public:
     Dsymbol *toAlias();
     Symbol *toSymbol();
     void toObjFile(int multiobj);                       // compile to .obj file
-    const char *mangle(bool isv = false);
     // Eliminate need for dynamic_cast
     VarDeclaration *isVarDeclaration() { return (VarDeclaration *)this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -337,8 +327,6 @@ public:
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
 
-    void emitComment(Scope *sc);
-
     Symbol *toSymbol();
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -353,8 +341,6 @@ public:
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
     char *toChars();
-
-    void emitComment(Scope *sc);
 
     Symbol *toSymbol();
     void toObjFile(int multiobj);                       // compile to .obj file
@@ -676,8 +662,6 @@ public:
     int getLevel(Loc loc, Scope *sc, FuncDeclaration *fd); // lexical nesting level difference
     void appendExp(Expression *e);
     void appendState(Statement *s);
-    const char *mangle(bool isv = false);
-    const char *mangleExact(bool isv = false);
     const char *toPrettyChars();
     const char *toFullSignature();  // for diagnostics, e.g. 'int foo(int x, int y) pure'
     bool isMain();
@@ -705,7 +689,6 @@ public:
     virtual bool addPreInvariant();
     virtual bool addPostInvariant();
     const char *kind();
-    void toDocBuffer(OutBuffer *buf, Scope *sc);
     FuncDeclaration *isUnique();
     void checkNestedReference(Scope *sc, Loc loc);
     bool needsClosure();
@@ -746,7 +729,6 @@ public:
     FuncAliasDeclaration *isFuncAliasDeclaration() { return this; }
     const char *kind();
     Symbol *toSymbol();
-    const char *mangle(bool isv = false);
 
     FuncDeclaration *toAliasFunc();
     void accept(Visitor *v) { v->visit(this); }
@@ -798,7 +780,6 @@ public:
     bool addPreInvariant();
     bool addPostInvariant();
     bool overloadInsert(Dsymbol *s);
-    void emitComment(Scope *sc);
 
     PostBlitDeclaration *isPostBlitDeclaration() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -818,7 +799,6 @@ public:
     bool addPreInvariant();
     bool addPostInvariant();
     bool overloadInsert(Dsymbol *s);
-    void emitComment(Scope *sc);
 
     DtorDeclaration *isDtorDeclaration() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -836,7 +816,6 @@ public:
     bool addPreInvariant();
     bool addPostInvariant();
     bool hasStaticCtorOrDtor();
-    void emitComment(Scope *sc);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     StaticCtorDeclaration *isStaticCtorDeclaration() { return this; }
@@ -868,7 +847,6 @@ public:
     bool hasStaticCtorOrDtor();
     bool addPreInvariant();
     bool addPostInvariant();
-    void emitComment(Scope *sc);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     StaticDtorDeclaration *isStaticDtorDeclaration() { return this; }
@@ -895,7 +873,6 @@ public:
     bool isVirtual();
     bool addPreInvariant();
     bool addPostInvariant();
-    void emitComment(Scope *sc);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     InvariantDeclaration *isInvariantDeclaration() { return this; }
@@ -913,7 +890,6 @@ public:
     bool isVirtual();
     bool addPreInvariant();
     bool addPostInvariant();
-    void emitComment(Scope *sc);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 
     UnitTestDeclaration *isUnitTestDeclaration() { return this; }

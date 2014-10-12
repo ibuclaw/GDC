@@ -6909,7 +6909,7 @@ Identifier *TemplateInstance::genIdent(Objects *args)
                 }
             }
 #endif
-            const char *p = sa->mangle();
+            const char *p = mangle(sa);
 
             /* Bugzilla 3043: if the first character of p is a digit this
              * causes ambiguity issues because the digits of the two numbers are adjacent.

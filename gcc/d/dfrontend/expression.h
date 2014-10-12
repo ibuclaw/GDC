@@ -112,6 +112,7 @@ Type *toStaticArrayType(SliceExp *e);
 Expression *scaleFactor(BinExp *be, Scope *sc);
 Expression *typeCombine(BinExp *be, Scope *sc);
 Expression *inferType(Expression *e, Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
+Expression *semanticTraits(TraitsExp *e, Scope *sc);
 
 /* Run CTFE on the expression, but allow the expression to be a TypeExp
  * or a tuple containing a TypeExp. (This is required by pragma(msg)).
@@ -743,9 +744,6 @@ public:
     TraitsExp(Loc loc, Identifier *ident, Objects *args);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    Expression *isTypeX(bool (*fp)(Type *t));
-    Expression *isFuncX(bool (*fp)(FuncDeclaration *f));
-    Expression *isDeclX(bool (*fp)(Declaration *d));
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1209,6 +1207,8 @@ public:
 
     AssignExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
+    int isLvalue();
+    Expression *toLvalue(Scope *sc, Expression *ex);
     Expression *checkToBoolean(Scope *sc);
 
     elem *toElem(IRState *irs);

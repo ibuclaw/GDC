@@ -31,6 +31,7 @@
 #include "cond.h"
 #include "hdrgen.h"
 #include "id.h"
+#include "doc.h"
 #include "json.h"
 #include "module.h"
 #include "scope.h"
@@ -942,7 +943,7 @@ d_parse_file (void)
 
       if (m->isDocFile)
 	{
-	  m->gendocfile();
+	  gendocfile(m);
 	  // Remove m from list of modules
 	  modules.remove (i);
 	  i--;
@@ -1135,7 +1136,7 @@ d_parse_file (void)
       if (!global.errors && !errorcount)
 	{
 	  if (global.params.doDocComments)
-	    m->gendocfile();
+	    gendocfile(m);
 	}
     }
 

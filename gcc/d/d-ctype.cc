@@ -162,12 +162,6 @@ Type::toCtype (void)
 }
 
 type *
-Type::toCParamtype (void)
-{
-  return toCtype();
-}
-
-type *
 TypeTypedef::toCtype (void)
 {
   if (!ctype)
@@ -198,12 +192,6 @@ TypeTypedef::toCtype (void)
     }
 
   return ctype;
-}
-
-type *
-TypeTypedef::toCParamtype (void)
-{
-  return toCtype();
 }
 
 type *
@@ -460,12 +448,6 @@ TypeSArray::toCtype (void)
     }
 
   return ctype;
-}
-
-type *
-TypeSArray::toCParamtype (void)
-{
-  return toCtype();
 }
 
 type *

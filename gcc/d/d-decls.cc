@@ -47,7 +47,7 @@ SymbolDeclaration::toSymbol (void)
 Symbol *
 Dsymbol::toSymbolX (const char *prefix, int, type *, const char *suffix)
 {
-  const char *symbol = mangle();
+  const char *symbol = mangle(this);
   unsigned prefixlen = strlen (prefix);
   size_t sz = (2 + strlen (symbol) + sizeof (size_t) * 3 + prefixlen + strlen (suffix) + 1);
   Symbol *s = new Symbol();
@@ -156,7 +156,7 @@ VarDeclaration::toSymbol (void)
 
       if (isDataseg())
 	{
-	  csym->Sident = mangle();
+	  csym->Sident = mangle(this);
 	  csym->prettyIdent = toPrettyChars();
 	}
       else
@@ -318,7 +318,7 @@ FuncDeclaration::toSymbol (void)
       tree vindex = NULL_TREE;
 
       // Save mangle/debug names for making thunks.
-      csym->Sident = mangleExact();
+      csym->Sident = mangleExact(this);
       csym->prettyIdent = toPrettyChars();
 
       tree id = get_identifier (this->isMain()

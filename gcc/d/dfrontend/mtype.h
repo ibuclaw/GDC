@@ -347,7 +347,6 @@ public:
 
     // For backend
     virtual type *toCtype();
-    virtual type *toCParamtype();
 
     // For eliminating dynamic_cast
     virtual TypeBasic *isTypeBasic();
@@ -497,7 +496,6 @@ public:
     bool needsNested();
 
     type *toCtype();
-    type *toCParamtype();
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -897,7 +895,6 @@ public:
     int hasWild();
 
     type *toCtype();
-    type *toCParamtype();
     void accept(Visitor *v) { v->visit(this); }
 };
 

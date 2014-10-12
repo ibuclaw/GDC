@@ -82,6 +82,9 @@ struct TYPE;
 // Back end
 struct Classsym;
 
+const char *mangle(Dsymbol *s);
+const char *mangleExact(FuncDeclaration *fd);
+
 enum PROT
 {
     PROTundefined,
@@ -183,7 +186,6 @@ public:
     Dsymbol *searchX(Loc loc, Scope *sc, RootObject *id);
     virtual bool overloadInsert(Dsymbol *s);
     virtual void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    virtual void toDocBuffer(OutBuffer *buf, Scope *sc);
     virtual unsigned size(Loc loc);
     virtual bool isforwardRef();
     virtual void defineRef(Dsymbol *s);
@@ -199,7 +201,6 @@ public:
     virtual LabelDsymbol *isLabel();            // is this a LabelDsymbol?
     virtual AggregateDeclaration *isMember();   // is this symbol a member of an AggregateDeclaration?
     virtual Type *getType();                    // is this a type?
-    virtual const char *mangle(bool isv = false);
     virtual bool needThis();                    // need a 'this' pointer?
     virtual PROT prot();
     virtual Dsymbol *syntaxCopy(Dsymbol *s);    // copy only syntax trees
@@ -212,8 +213,6 @@ public:
     virtual void checkCtorConstInit() { }
 
     virtual void addComment(const utf8_t *comment);
-    virtual void emitComment(Scope *sc);
-    void emitDitto(Scope *sc);
 
     bool inNonRoot();
 
@@ -295,8 +294,6 @@ public:
     FuncDeclaration *findGetMembers();
     virtual Dsymbol *symtabInsert(Dsymbol *s);
     bool hasStaticCtorOrDtor();
-
-    void emitMemberComments(Scope *sc);
 
     static size_t dim(Dsymbols *members);
     static Dsymbol *getNth(Dsymbols *members, size_t nth, size_t *pn = NULL);
