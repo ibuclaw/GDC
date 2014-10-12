@@ -63,7 +63,7 @@ Symbol::Symbol (void)
 
 
 void
-Dsymbol::toObjFile (int)
+Dsymbol::toObjFile(bool)
 {
   // Emit the imported symbol to debug.
   Import *imp = this->isImport();
@@ -143,7 +143,7 @@ Dsymbol::toObjFile (int)
 }
 
 void
-AttribDeclaration::toObjFile (int)
+AttribDeclaration::toObjFile(bool)
 {
   Dsymbols *d = include (NULL, NULL);
 
@@ -158,7 +158,7 @@ AttribDeclaration::toObjFile (int)
 }
 
 void
-PragmaDeclaration::toObjFile (int)
+PragmaDeclaration::toObjFile(bool)
 {
   if (!global.params.ignoreUnsupportedPragmas)
     {
@@ -172,7 +172,7 @@ PragmaDeclaration::toObjFile (int)
 }
 
 void
-StructDeclaration::toObjFile (int)
+StructDeclaration::toObjFile(bool)
 {
   if (type->ty == Terror)
     {
@@ -219,7 +219,7 @@ StructDeclaration::toObjFile (int)
 }
 
 void
-ClassDeclaration::toObjFile (int)
+ClassDeclaration::toObjFile(bool)
 {
   if (type->ty == Terror)
     {
@@ -577,7 +577,7 @@ ClassDeclaration::baseVtblOffset (BaseClass *bc)
 }
 
 void
-InterfaceDeclaration::toObjFile (int)
+InterfaceDeclaration::toObjFile(bool)
 {
   if (type->ty == Terror)
     {
@@ -713,7 +713,7 @@ InterfaceDeclaration::toObjFile (int)
 }
 
 void
-EnumDeclaration::toObjFile (int)
+EnumDeclaration::toObjFile(bool)
 {
   if (semanticRun >= PASSobj)
     return;
@@ -746,7 +746,7 @@ EnumDeclaration::toObjFile (int)
 }
 
 void
-VarDeclaration::toObjFile (int)
+VarDeclaration::toObjFile(bool)
 {
   if (type->ty == Terror)
     {
@@ -844,7 +844,7 @@ VarDeclaration::toObjFile (int)
 }
 
 void
-TypedefDeclaration::toObjFile (int)
+TypedefDeclaration::toObjFile(bool)
 {
   if (type->ty == Terror)
     {
@@ -870,20 +870,9 @@ TypedefDeclaration::toObjFile (int)
 }
 
 void
-TemplateInstance::toObjFile (int)
+TemplateInstance::toObjFile(bool)
 {
   if (isError (this)|| !members)
-    return;
-
-  // Prevent codegen if enclosing is an artificially instantiated function.
-  FuncDeclaration *fd = this->enclosing ? this->enclosing->isFuncDeclaration() : NULL;
-  if (fd && fd->fbody == NULL)
-    return;
-
-  // Template lambdas that instantiated in template constraint cannot appear in runnable code.
-  TemplateDeclaration *tempdecl = this->tempdecl->isTemplateDeclaration();
-  gcc_assert(tempdecl != NULL);
-  if (tempdecl->literal && tempdecl->ident == Id::empty)
     return;
 
   for (size_t i = 0; i < members->dim; i++)
@@ -894,13 +883,13 @@ TemplateInstance::toObjFile (int)
 }
 
 void
-TemplateMixin::toObjFile (int)
+TemplateMixin::toObjFile(bool)
 {
   TemplateInstance::toObjFile (0);
 }
 
 void
-TypeInfoDeclaration::toObjFile (int)
+TypeInfoDeclaration::toObjFile(bool)
 {
   Symbol *s = toSymbol();
   toDt (&s->Sdt);
@@ -1130,7 +1119,7 @@ output_declaration_p (Dsymbol *dsym)
 // down to assembler language output.
 
 void
-FuncDeclaration::toObjFile (int)
+FuncDeclaration::toObjFile(bool)
 {
   // Already generated the function.
   if (semanticRun >= PASSobj)
@@ -1388,7 +1377,7 @@ FuncDeclaration::toObjFile (int)
 //
 
 void
-Module::genobjfile (int)
+Module::genobjfile(bool)
 {
   // Normally would create an ObjFile here, but gcc is limited to one object
   // file per pass and there may be more than one module per object file.

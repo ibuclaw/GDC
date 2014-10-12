@@ -105,6 +105,8 @@ FuncDeclaration *hasIdentityOpAssign(AggregateDeclaration *ad, Scope *sc)
 
         if (f)
         {
+            if (f->errors)
+                return NULL;
             int varargs;
             Parameters *fparams = f->getParameters(&varargs);
             if (fparams->dim >= 1)
@@ -438,7 +440,11 @@ FuncDeclaration *hasIdentityOpEquals(AggregateDeclaration *ad,  Scope *sc)
             global.endGagging(errors);
 
             if (f)
+            {
+                if (f->errors)
+                    return NULL;
                 return f;
+            }
         }
     }
     return NULL;
@@ -1014,7 +1020,8 @@ FuncDeclaration *buildInv(AggregateDeclaration *ad, Scope *sc)
                 {
                     // What should do?
                 }
-                StorageClass stcy = ad->invs[i]->storage_class & (STCshared | STCsynchronized);
+                StorageClass stcy = (ad->invs[i]->storage_class & STCsynchronized) |
+                                    (ad->invs[i]->type->mod & MODshared ? STCshared : 0);
                 if (i == 0)
                     stcx = stcy;
                 else if (stcx ^ stcy)

@@ -259,10 +259,10 @@ public:
     virtual bool iscomplex();
     virtual bool isscalar();
     virtual bool isunsigned();
-    virtual int isscope();
-    virtual int isString();
-    virtual int isAssignable();
-    virtual int checkBoolean(); // if can be converted to boolean value
+    virtual bool isscope();
+    virtual bool isString();
+    virtual bool isAssignable();
+    virtual bool checkBoolean(); // if can be converted to boolean value
     virtual void checkDeprecated(Loc loc, Scope *sc);
     bool isConst()       { return (mod & MODconst) != 0; }
     bool isImmutable()   { return (mod & MODimmutable) != 0; }
@@ -295,7 +295,7 @@ public:
     Type *arrayOf();
     Type *sarrayOf(dinteger_t dim);
     Type *aliasthisOf();
-    int checkAliasThisRec();
+    bool checkAliasThisRec();
     virtual Type *makeConst();
     virtual Type *makeImmutable();
     virtual Type *makeShared();
@@ -323,7 +323,7 @@ public:
     Expression *noMember(Scope *sc, Expression *e, Identifier *ident, int flag);
     virtual Expression *defaultInit(Loc loc = Loc());
     virtual Expression *defaultInitLiteral(Loc loc);
-    virtual int isZeroInit(Loc loc = Loc());                // if initializer is 0
+    virtual bool isZeroInit(Loc loc = Loc());                // if initializer is 0
     virtual dt_t **toDt(dt_t **pdt);
     Identifier *getTypeInfoIdent(int internal);
     virtual void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
@@ -339,7 +339,7 @@ public:
     virtual Type *nextOf();
     Type *baseElemOf();
     uinteger_t sizemask();
-    virtual int needsDestruction();
+    virtual bool needsDestruction();
     virtual bool needsNested();
 
     static void error(Loc loc, const char *format, ...);
@@ -416,7 +416,7 @@ public:
     bool isunsigned();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     int builtinTypeInfo();
 
     // For eliminating dynamic_cast
@@ -444,12 +444,12 @@ public:
     bool isfloating();
     bool isscalar();
     bool isunsigned();
-    int checkBoolean();
+    bool checkBoolean();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
     Expression *defaultInitLiteral(Loc loc);
     TypeBasic *elementType();
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     dt_t **toDt(dt_t **pdt);
     TypeInfoDeclaration *getTypeInfoDeclaration();
 
@@ -480,8 +480,8 @@ public:
     void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     void toDecoBuffer(OutBuffer *buf, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    int isString();
-    int isZeroInit(Loc loc);
+    bool isString();
+    bool isZeroInit(Loc loc);
     structalign_t alignment();
     MATCH constConv(Type *to);
     MATCH implicitConvTo(Type *to);
@@ -492,7 +492,7 @@ public:
     TypeInfoDeclaration *getTypeInfoDeclaration();
     Expression *toExpression();
     int hasPointers();
-    int needsDestruction();
+    bool needsDestruction();
     bool needsNested();
 
     type *toCtype();
@@ -512,9 +512,9 @@ public:
     void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     void toDecoBuffer(OutBuffer *buf, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    int isString();
-    int isZeroInit(Loc loc);
-    int checkBoolean();
+    bool isString();
+    bool isZeroInit(Loc loc);
+    bool checkBoolean();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
     int builtinTypeInfo();
@@ -542,8 +542,8 @@ public:
     void toDecoBuffer(OutBuffer *buf, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
-    int checkBoolean();
+    bool isZeroInit(Loc loc);
+    bool checkBoolean();
     TypeInfoDeclaration *getTypeInfoDeclaration();
     Type *reliesOnTident(TemplateParameters *tparams);
     Expression *toExpression();
@@ -570,7 +570,7 @@ public:
     MATCH constConv(Type *to);
     bool isscalar();
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
 
@@ -588,7 +588,7 @@ public:
     d_uns64 size(Loc loc);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -670,8 +670,8 @@ public:
     unsigned alignsize();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
-    int checkBoolean();
+    bool isZeroInit(Loc loc);
+    bool checkBoolean();
     TypeInfoDeclaration *getTypeInfoDeclaration();
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     int hasPointers();
@@ -796,10 +796,10 @@ public:
     structalign_t alignment();
     Expression *defaultInit(Loc loc);
     Expression *defaultInitLiteral(Loc loc);
-    int isZeroInit(Loc loc);
-    int isAssignable();
-    int checkBoolean();
-    int needsDestruction();
+    bool isZeroInit(Loc loc);
+    bool isAssignable();
+    bool checkBoolean();
+    bool needsDestruction();
     bool needsNested();
     dt_t **toDt(dt_t **pdt);
     TypeInfoDeclaration *getTypeInfoDeclaration();
@@ -836,16 +836,16 @@ public:
     bool iscomplex();
     bool isscalar();
     bool isunsigned();
-    int checkBoolean();
-    int isString();
-    int isAssignable();
-    int needsDestruction();
+    bool checkBoolean();
+    bool isString();
+    bool isAssignable();
+    bool needsDestruction();
     bool needsNested();
     MATCH implicitConvTo(Type *to);
     MATCH constConv(Type *to);
     Type *toBasetype();
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     Type *nextOf();
@@ -878,9 +878,9 @@ public:
     bool iscomplex();
     bool isscalar();
     bool isunsigned();
-    int checkBoolean();
-    int isAssignable();
-    int needsDestruction();
+    bool checkBoolean();
+    bool isAssignable();
+    bool needsDestruction();
     bool needsNested();
     Type *toBasetype();
     MATCH implicitConvTo(Type *to);
@@ -888,7 +888,7 @@ public:
     Type *toHeadMutable();
     Expression *defaultInit(Loc loc);
     Expression *defaultInitLiteral(Loc loc);
-    int isZeroInit(Loc loc);
+    bool isZeroInit(Loc loc);
     dt_t **toDt(dt_t **pdt);
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
@@ -920,9 +920,9 @@ public:
     unsigned char deduceWild(Type *t, bool isRef);
     Type *toHeadMutable();
     Expression *defaultInit(Loc loc);
-    int isZeroInit(Loc loc);
-    int isscope();
-    int checkBoolean();
+    bool isZeroInit(Loc loc);
+    bool isscope();
+    bool checkBoolean();
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     int builtinTypeInfo();
@@ -978,7 +978,7 @@ public:
     Type *syntaxCopy();
     void toDecoBuffer(OutBuffer *buf, int flag);
     MATCH implicitConvTo(Type *to);
-    int checkBoolean();
+    bool checkBoolean();
 
     d_uns64 size(Loc loc);
     Expression *defaultInit(Loc loc);

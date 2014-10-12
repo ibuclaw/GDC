@@ -133,6 +133,14 @@ void Mem::error()
 
 /* =================================================== */
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define USE_ASAN_NEW_DELETE
+#endif
+#endif
+
+#if !defined(USE_ASAN_NEW_DELETE)
+
 #if 1
 
 /* Allocate, but never release
@@ -202,5 +210,7 @@ void operator delete(void *p)
 {
     free(p);
 }
+
+#endif
 
 #endif

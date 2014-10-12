@@ -173,7 +173,7 @@ public:
     bool fill(Loc loc, Expressions *elements, bool ctorinit);
     bool isPOD();
 
-    void toObjFile(int multiobj);                       // compile to .obj file
+    void toObjFile(bool multiobj);                       // compile to .obj file
     void toDt(dt_t **pdt);
     void toDebug();                     // to symbolic debug info
 
@@ -265,7 +265,7 @@ public:
     int com;                            // !=0 if this is a COM class (meaning
                                         // it derives from IUnknown)
     int cpp;                            // !=0 if this is a C++ interface
-    int isscope;                        // !=0 if this is an auto class
+    bool isscope;                       // !=0 if this is an auto class
     int isabstract;                     // !=0 if abstract class
     int inuse;                          // to prevent recursive attempts
     Semantic doAncestorsSemantic;  // Before searching symbol, whole ancestors should finish
@@ -298,7 +298,7 @@ public:
     void addLocalClass(ClassDeclarations *);
 
     // Back end
-    void toObjFile(int multiobj);                       // compile to .obj file
+    void toObjFile(bool multiobj);                       // compile to .obj file
     void toDebug();
     unsigned baseVtblOffset(BaseClass *bc);
     Symbol *toSymbol();
@@ -326,7 +326,7 @@ public:
     int isCPPinterface();
     virtual int isCOMinterface();
 
-    void toObjFile(int multiobj);                       // compile to .obj file
+    void toObjFile(bool multiobj);                       // compile to .obj file
     Symbol *toSymbol();
 
     InterfaceDeclaration *isInterfaceDeclaration() { return this; }

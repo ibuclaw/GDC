@@ -145,28 +145,27 @@ static bool std_inc = true;
 
 /* Common initialization before calling option handlers.  */
 static void
-d_init_options (unsigned int, cl_decoded_option *decoded_options)
+d_init_options(unsigned int, cl_decoded_option *decoded_options)
 {
   // Set default values
   global.init();
 
   global.compiler.vendor = lang_name;
 
-  global.params.argv0 = xstrdup (decoded_options[0].arg);
-  global.params.link = 1;
-  global.params.useAssert = 1;
-  global.params.useInvariants = 1;
-  global.params.useIn = 1;
-  global.params.useOut = 1;
+  global.params.argv0 = xstrdup(decoded_options[0].arg);
+  global.params.link = true;
+  global.params.useAssert = true;
+  global.params.useInvariants = true;
+  global.params.useIn = true;
+  global.params.useOut = true;
   global.params.useArrayBounds = 2;
-  global.params.useSwitchError = 1;
-  global.params.useInline = 0;
+  global.params.useSwitchError = true;
+  global.params.useInline = false;
   global.params.warnings = 0;
-  global.params.obj = 1;
-  global.params.quiet = 1;
+  global.params.obj = true;
   global.params.useDeprecated = 1;
-  global.params.betterC = 0;
-  global.params.allInst = 0;
+  global.params.betterC = false;
+  global.params.allInst = false;
 
   global.params.linkswitches = new Strings();
   global.params.libfiles = new Strings();
@@ -215,17 +214,17 @@ static void
 d_add_builtin_version(const char* ident)
 {
   if (strcmp (ident, "linux") == 0)
-    global.params.isLinux = 1;
+    global.params.isLinux = true;
   else if (strcmp (ident, "OSX") == 0)
-    global.params.isOSX = 1;
+    global.params.isOSX = true;
   else if (strcmp (ident, "Windows") == 0)
-    global.params.isWindows = 1;
+    global.params.isWindows = true;
   else if (strcmp (ident, "FreeBSD") == 0)
-    global.params.isFreeBSD = 1;
+    global.params.isFreeBSD = true;
   else if (strcmp (ident, "OpenBSD") == 0)
-    global.params.isOpenBSD = 1;
+    global.params.isOpenBSD = true;
   else if (strcmp (ident, "Solaris") == 0)
-    global.params.isSolaris = 1;
+    global.params.isSolaris = true;
   else if (strcmp (ident, "X86_64") == 0)
     global.params.is64bit = true;
 
@@ -236,7 +235,7 @@ static bool
 d_init (void)
 {
   if(POINTER_SIZE == 64)
-    global.params.isLP64 = 1;
+    global.params.isLP64 = true;
 
   Type::init();
   Id::initialize();
@@ -303,7 +302,7 @@ d_init (void)
     VersionCondition::addPredefinedGlobalIdent ("unittest");
   if (global.params.useAssert)
     VersionCondition::addPredefinedGlobalIdent("assert");
-  if (global.params.noboundscheck)
+  if (!global.params.useArrayBounds)
     VersionCondition::addPredefinedGlobalIdent("D_NoBoundsChecks");
 
   VersionCondition::addPredefinedGlobalIdent ("all");
@@ -374,7 +373,8 @@ d_handle_option (size_t scode, const char *arg, int value,
       break;
 
     case OPT_fbounds_check:
-      global.params.noboundscheck = !value;
+      global.params.useArrayBounds = value ? 2 : 0;
+      flag_bounds_check = value;
       break;
 
     case OPT_fdebug:
@@ -413,12 +413,12 @@ d_handle_option (size_t scode, const char *arg, int value,
       break;
 
     case OPT_fdoc_dir_:
-      global.params.doDocComments = 1;
+      global.params.doDocComments = true;
       global.params.docdir = arg;
       break;
 
     case OPT_fdoc_file_:
-      global.params.doDocComments = 1;
+      global.params.doDocComments = true;
       global.params.docname = arg;
       break;
 
@@ -456,12 +456,12 @@ d_handle_option (size_t scode, const char *arg, int value,
       break;
 
     case OPT_fintfc_dir_:
-      global.params.doHdrGeneration = 1;
+      global.params.doHdrGeneration = true;
       global.params.hdrdir = arg;
       break;
 
     case OPT_fintfc_file_:
-      global.params.doHdrGeneration = 1;
+      global.params.doHdrGeneration = true;
       global.params.hdrname = arg;
       break;
 
@@ -511,7 +511,8 @@ d_handle_option (size_t scode, const char *arg, int value,
       global.params.useOut = !value;
       global.params.useAssert = !value;
       // release mode doesn't turn off bounds checking for safe functions.
-      global.params.useArrayBounds = !value ? 2 : 1;
+      if (global.params.useArrayBounds != 0)
+	global.params.useArrayBounds = !value ? 2 : 1;
       flag_bounds_check = !value;
       global.params.useSwitchError = !value;
       break;
@@ -537,8 +538,8 @@ d_handle_option (size_t scode, const char *arg, int value,
       break;
 
     case OPT_fXf_:
-      global.params.doXGeneration = 1;
-      global.params.xfilename = arg;
+      global.params.doJsonGeneration = true;
+      global.params.jsonfilename = arg;
       break;
 
     case OPT_imultilib:
@@ -603,10 +604,6 @@ d_post_options (const char ** fn)
   if (num_in_fnames > 1)
     flag_unit_at_a_time = 1;
 
-  /* Array bounds checking. */
-  if (global.params.noboundscheck)
-    flag_bounds_check = global.params.useArrayBounds = 0;
-
   /* Error about use of deprecated features. */
   if (global.params.useDeprecated == 2 && global.params.warnings == 1)
     global.params.useDeprecated = 0;
@@ -615,10 +612,10 @@ d_post_options (const char ** fn)
     flag_excess_precision_cmdline = EXCESS_PRECISION_STANDARD;
 
   if (global.params.useUnitTests)
-    global.params.useAssert = 1;
+    global.params.useAssert = true;
 
   global.params.symdebug = write_symbols != NO_DEBUG;
-  //global.params.useInline = flag_inline_functions;
+  global.params.useInline = flag_inline_functions;
   global.params.obj = !flag_syntax_only;
   // Has no effect yet.
   global.params.pic = flag_pic != 0;
@@ -1080,13 +1077,13 @@ d_parse_file (void)
     output_modules.append (&modules);
 
   // Generate output files
-  if (global.params.doXGeneration)
+  if (global.params.doJsonGeneration)
     {
       OutBuffer buf;
       json_generate(&buf, &modules);
 
       // Write buf to file
-      const char *name = global.params.xfilename;
+      const char *name = global.params.jsonfilename;
 
       if (name && name[0] == '-' && name[1] == 0)
 	{

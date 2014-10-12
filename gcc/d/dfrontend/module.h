@@ -55,6 +55,8 @@ public:
     virtual void semantic(Scope *) { }
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
     void accept(Visitor *v) { v->visit(this); }
+
+    Module *isPackageMod();
 };
 
 class Module : public Package
@@ -81,6 +83,7 @@ public:
     unsigned errors;    // if any errors in file
     unsigned numlines;  // number of lines in source file
     int isDocFile;      // if it is a documentation input file, not D source
+    bool isPackageFile; // if it is a package.d
     int needmoduleinfo;
 
     int selfimports;            // 0: don't know, 1: does not, 2: does
@@ -125,7 +128,7 @@ public:
     void semantic();    // semantic analysis
     void semantic2();   // pass 2 semantic analysis
     void semantic3();   // pass 3 semantic analysis
-    void genobjfile(int multiobj);
+    void genobjfile(bool multiobj);
     void gensymfile();
     int needModuleInfo();
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);

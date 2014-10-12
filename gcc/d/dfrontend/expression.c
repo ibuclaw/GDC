@@ -302,6 +302,8 @@ Expression *resolvePropertiesX(Scope *sc, Expression *e1, Expression *e2 = NULL)
                 FuncDeclaration *f = resolveFuncCall(loc, sc, os->a[i], tiargs, tthis, &a, 1);
                 if (f)
                 {
+                    if (f->errors)
+                        return new ErrorExp();
                     fd = f;
                     assert(fd->type->ty == Tfunction);
                     TypeFunction *tf = (TypeFunction *)fd->type;
@@ -321,6 +323,8 @@ Expression *resolvePropertiesX(Scope *sc, Expression *e1, Expression *e2 = NULL)
                 FuncDeclaration *f = resolveFuncCall(loc, sc, os->a[i], tiargs, tthis, NULL, 1);
                 if (f)
                 {
+                    if (f->errors)
+                        return new ErrorExp();
                     fd = f;
                     assert(fd->type->ty == Tfunction);
                     TypeFunction *tf = (TypeFunction *)fd->type;
@@ -425,6 +429,8 @@ Expression *resolvePropertiesX(Scope *sc, Expression *e1, Expression *e2 = NULL)
             FuncDeclaration *fd = resolveFuncCall(loc, sc, s, tiargs, tthis, &a, 1);
             if (fd && fd->type)
             {
+                if (fd->errors)
+                    return new ErrorExp();
                 assert(fd->type->ty == Tfunction);
                 TypeFunction *tf = (TypeFunction *)fd->type;
                 if (!tf->isproperty && global.params.enforcePropertySyntax)
@@ -437,6 +443,8 @@ Expression *resolvePropertiesX(Scope *sc, Expression *e1, Expression *e2 = NULL)
             FuncDeclaration *fd = resolveFuncCall(loc, sc, s, tiargs, tthis, NULL, 1);
             if (fd && fd->type)
             {
+                if (fd->errors)
+                    return new ErrorExp();
                 assert(fd->type->ty == Tfunction);
                 TypeFunction *tf = (TypeFunction *)fd->type;
                 if (!e2 || tf->isref)
@@ -578,6 +586,7 @@ void checkPropertyCall(Expression *e, Expression *emsg)
 
 Expression *resolvePropertiesOnly(Scope *sc, Expression *e1)
 {
+    //printf("e1 = %s %s\n", Token::toChars(e1->op), e1->toChars());
     OverloadSet *os;
     FuncDeclaration *fd;
     TemplateDeclaration *td;
@@ -664,7 +673,8 @@ Expression *resolvePropertiesOnly(Scope *sc, Expression *e1)
         fd = dve->var->isFuncDeclaration();
         goto Lfd;
     }
-    else if (e1->op == TOKvar && e1->type->ty == Tfunction)
+    else if (e1->op == TOKvar && e1->type->ty == Tfunction &&
+        (sc->intypeof || !((VarExp *)e1)->var->needThis()))
     {
         fd = ((VarExp *)e1)->var->isFuncDeclaration();
     Lfd:
@@ -1137,10 +1147,14 @@ Expressions *arrayExpressionToCommonType(Scope *sc, Expressions *exps, Type **pt
                 condexp.loc = e->loc;
                 condexp.semantic(sc);
                 (*exps)[j0] = condexp.e1;
+                if (condexp.e1->op == TOKfunction &&
+                    condexp.e2->op == TOKfunction)
+                    t0 = condexp.e2->type;
+                else
+                    t0 = condexp.type;
                 e = condexp.e2;
                 j0 = i;
                 e0 = e;
-                t0 = e0->type;
             }
         }
         else
@@ -4550,7 +4564,8 @@ Lagain:
             e = new DotTemplateInstanceExp(loc, e, ti);
             return e->semantic(sc);
         }
-        if (ti->needsTypeInference(sc))
+        if (!ti->semanticRun &&
+            ti->needsTypeInference(sc))
         {
             if (TemplateDeclaration *td = ti->tempdecl->isTemplateDeclaration())
             {
@@ -4576,7 +4591,6 @@ Lagain:
             }
             return this;
         }
-        unsigned olderrs = global.errors;
         if (!ti->semanticRun)
             ti->semantic(sc);
         if (ti->inst)
@@ -4609,8 +4623,6 @@ Lagain:
             }
             //printf("sds = %s, '%s'\n", sds->kind(), sds->toChars());
         }
-        if (olderrs != global.errors)
-            return new ErrorExp();
     }
     else
     {
@@ -4752,7 +4764,8 @@ Lagain:
     nargs = arguments ? arguments->dim : 0;
 
     if (thisexp && tb->ty != Tclass)
-    {   error("e.new is only for allocating nested classes, not %s", tb->toChars());
+    {
+        error("e.new is only for allocating nested classes, not %s", tb->toChars());
         goto Lerr;
     }
 
@@ -4763,13 +4776,16 @@ Lagain:
         if (cd->scope)
             cd->semantic(NULL);
         if (cd->isInterfaceDeclaration())
-        {   error("cannot create instance of interface %s", cd->toChars());
+        {
+            error("cannot create instance of interface %s", cd->toChars());
             goto Lerr;
         }
         else if (cd->isAbstract())
-        {   error("cannot create instance of abstract class %s", cd->toChars());
+        {
+            error("cannot create instance of abstract class %s", cd->toChars());
             for (size_t i = 0; i < cd->vtbl.dim; i++)
-            {   FuncDeclaration *fd = cd->vtbl[i]->isFuncDeclaration();
+            {
+                FuncDeclaration *fd = cd->vtbl[i]->isFuncDeclaration();
                 if (fd && fd->isAbstract())
                     errorSupplemental(loc, "function '%s' is not implemented", fd->toFullSignature());
             }
@@ -4777,12 +4793,14 @@ Lagain:
         }
 
         if (cd->noDefaultCtor && !nargs && !cd->defaultCtor)
-        {   error("default construction is disabled for type %s", cd->type->toChars());
+        {
+            error("default construction is disabled for type %s", cd->type->toChars());
             goto Lerr;
         }
         checkDeprecated(sc, cd);
         if (cd->isNested())
-        {   /* We need a 'this' pointer for the nested class.
+        {
+            /* We need a 'this' pointer for the nested class.
              * Ensure we have the right one.
              */
             Dsymbol *s = cd->toParent2();
@@ -4797,7 +4815,8 @@ Lagain:
                     // Supply an implicit 'this' and try again
                     thisexp = new ThisExp(loc);
                     for (Dsymbol *sp = sc->parent; 1; sp = sp->parent)
-                    {   if (!sp)
+                    {
+                        if (!sp)
                         {
                             error("outer class %s 'this' needed to 'new' nested class %s", cdn->toChars(), cd->toChars());
                             goto Lerr;
@@ -4817,13 +4836,15 @@ Lagain:
                 {
                     //printf("cdthis = %s\n", cdthis->toChars());
                     if (cdthis != cdn && !cdn->isBaseOf(cdthis, NULL))
-                    {   error("'this' for nested class must be of type %s, not %s", cdn->toChars(), thisexp->type->toChars());
+                    {
+                        error("'this' for nested class must be of type %s, not %s", cdn->toChars(), thisexp->type->toChars());
                         goto Lerr;
                     }
                 }
             }
             else if (thisexp)
-            {   error("e.new is only for allocating nested classes");
+            {
+                error("e.new is only for allocating nested classes");
                 goto Lerr;
             }
             else if (fdn)
@@ -4839,13 +4860,18 @@ Lagain:
                         error("outer function context of %s is needed to 'new' nested class %s", fdn->toPrettyChars(), cd->toPrettyChars());
                         goto Lerr;
                     }
+                    else if (FuncLiteralDeclaration *fld = sp->isFuncLiteralDeclaration())
+                    {
+                        fld->tok = TOKdelegate;
+                    }
                 }
             }
             else
                 assert(0);
         }
         else if (thisexp)
-        {   error("e.new is only for allocating nested classes");
+        {
+            error("e.new is only for allocating nested classes");
             goto Lerr;
         }
 
@@ -4854,6 +4880,8 @@ Lagain:
             f = resolveFuncCall(loc, sc, cd->ctor, NULL, tb, arguments, 0);
         if (f)
         {
+            if (f->errors)
+                goto Lerr;
             checkDeprecated(sc, f);
             checkPurity(sc, f);
             checkSafety(sc, f);
@@ -4874,7 +4902,8 @@ Lagain:
         else
         {
             if (nargs)
-            {   error("no constructor for %s", cd->toChars());
+            {
+                error("no constructor for %s", cd->toChars());
                 goto Lerr;
             }
         }
@@ -4888,7 +4917,7 @@ Lagain:
             newargs->shift(e);
 
             f = resolveFuncCall(loc, sc, cd->aggNew, NULL, tb, newargs);
-            if (!f)
+            if (!f || f->errors)
                 goto Lerr;
             allocator = f->isNewDeclaration();
             assert(allocator);
@@ -4902,7 +4931,8 @@ Lagain:
         else
         {
             if (newargs && newargs->dim)
-            {   error("no allocator for %s", cd->toChars());
+            {
+                error("no allocator for %s", cd->toChars());
                 goto Lerr;
             }
         }
@@ -4914,7 +4944,8 @@ Lagain:
         if (sd->scope)
             sd->semantic(NULL);
         if (sd->noDefaultCtor && !nargs)
-        {   error("default construction is disabled for type %s", sd->type->toChars());
+        {
+            error("default construction is disabled for type %s", sd->type->toChars());
             goto Lerr;
         }
 
@@ -4927,7 +4958,7 @@ Lagain:
             newargs->shift(e);
 
             FuncDeclaration *f = resolveFuncCall(loc, sc, sd->aggNew, NULL, tb, newargs);
-            if (!f)
+            if (!f || f->errors)
                 goto Lerr;
             allocator = f->isNewDeclaration();
             assert(allocator);
@@ -4941,7 +4972,8 @@ Lagain:
         else
         {
             if (newargs && newargs->dim)
-            {   error("no allocator for %s", sd->toChars());
+            {
+                error("no allocator for %s", sd->toChars());
                 goto Lerr;
             }
         }
@@ -4951,6 +4983,8 @@ Lagain:
             f = resolveFuncCall(loc, sc, sd->ctor, NULL, tb, arguments, 0);
         if (f)
         {
+            if (f->errors)
+                goto Lerr;
             checkDeprecated(sc, f);
             checkPurity(sc, f);
             checkSafety(sc, f);
@@ -5003,13 +5037,15 @@ Lagain:
         Dsymbol *s = tn->toDsymbol(sc);
         AggregateDeclaration *ad = s ? s->isAggregateDeclaration() : NULL;
         if (ad && ad->noDefaultCtor)
-        {   error("default construction is disabled for type %s", tb->nextOf()->toChars());
+        {
+            error("default construction is disabled for type %s", tb->nextOf()->toChars());
             goto Lerr;
         }
         for (size_t i = 0; i < nargs; i++)
         {
             if (tb->ty != Tarray)
-            {   error("too many arguments for array");
+            {
+                error("too many arguments for array");
                 goto Lerr;
             }
 
@@ -5018,7 +5054,8 @@ Lagain:
             arg = arg->implicitCastTo(sc, Type::tsize_t);
             arg = arg->optimize(WANTvalue);
             if (arg->op == TOKint64 && (sinteger_t)arg->toInteger() < 0)
-            {   error("negative array index %s", arg->toChars());
+            {
+                error("negative array index %s", arg->toChars());
                 goto Lerr;
             }
             (*arguments)[i] =  arg;
@@ -5479,24 +5516,32 @@ void FuncExp::genIdent(Scope *sc)
         DsymbolTable *symtab;
         if (FuncDeclaration *func = sc->parent->isFuncDeclaration())
         {
-            symtab = func->localsymtab;
-            if (symtab)
+            if (func->localsymtab == NULL)
             {
                 // Inside template constraint, symtab is not set yet.
-                goto L1;
+                // Initialize it lazily.
+                func->localsymtab = new DsymbolTable();
             }
+            symtab = func->localsymtab;
         }
         else
         {
-            symtab = sc->parent->isScopeDsymbol()->symtab;
-        L1:
-            assert(symtab);
-            int num = (int)_aaLen(symtab->tab) + 1;
-            Identifier *id = Lexer::uniqueId(s, num);
-            fd->ident = id;
-            if (td) td->ident = id;
-            symtab->insert(td ? (Dsymbol *)td : (Dsymbol *)fd);
+            ScopeDsymbol *sds = sc->parent->isScopeDsymbol();
+            if (!sds->symtab)
+            {
+                // Inside template constraint, symtab may not be set yet.
+                // Initialize it lazily.
+                assert(sds->isTemplateInstance());
+                sds->symtab = new DsymbolTable();
+            }
+            symtab = sds->symtab;
         }
+        assert(symtab);
+        int num = (int)_aaLen(symtab->tab) + 1;
+        Identifier *id = Lexer::uniqueId(s, num);
+        fd->ident = id;
+        if (td) td->ident = id;
+        symtab->insert(td ? (Dsymbol *)td : (Dsymbol *)fd);
     }
 }
 
@@ -7907,9 +7952,7 @@ Expression *CallExp::semantic(Scope *sc)
             }
             else
             {
-                ti->semantic(sc);
-                if (ti->errors)
-                    e1 = new ErrorExp();
+                e1 = e1->semantic(sc);
             }
         }
     }
@@ -8217,7 +8260,7 @@ Lagain:
 
         // Do overload resolution
         f = resolveFuncCall(loc, sc, s, tiargs, ue1 ? ue1->type : NULL, arguments);
-        if (!f || f->type->ty == Terror)
+        if (!f || f->errors || f->type->ty == Terror)
             return new ErrorExp();
 
         if (f->needThis())
@@ -8324,7 +8367,7 @@ Lagain:
 
                 tthis = cd->type->addMod(sc->func->type->mod);
                 f = resolveFuncCall(loc, sc, cd->baseClass->ctor, NULL, tthis, arguments, 0);
-                if (!f)
+                if (!f || f->errors)
                     return new ErrorExp();
                 accessCheck(loc, sc, NULL, f);
                 checkDeprecated(sc, f);
@@ -8363,7 +8406,7 @@ Lagain:
 
             tthis = cd->type->addMod(sc->func->type->mod);
             f = resolveFuncCall(loc, sc, cd->ctor, NULL, tthis, arguments, 0);
-            if (!f)
+            if (!f || f->errors)
                 return new ErrorExp();
             checkDeprecated(sc, f);
             checkPurity(sc, f);
@@ -8386,12 +8429,15 @@ Lagain:
         FuncDeclaration *f = NULL;
         Dsymbol *s = NULL;
         for (size_t i = 0; i < eo->vars->a.dim; i++)
-        {   s = eo->vars->a[i];
+        {
+            s = eo->vars->a[i];
             if (tiargs && s->isFuncDeclaration())
                 continue;
             FuncDeclaration *f2 = resolveFuncCall(loc, sc, s, tiargs, tthis, arguments, 1);
             if (f2)
             {
+                if (f2->errors)
+                    return new ErrorExp();
                 if (f)
                 {
                     /* Error if match in more than one overload set,
@@ -8451,7 +8497,7 @@ Lagain:
         {
             TemplateExp *te = (TemplateExp *)e1;
             f = resolveFuncCall(loc, sc, te->td, tiargs, NULL, arguments);
-            if (!f)
+            if (!f || f->errors)
                 return new ErrorExp();
             if (f->needThis())
             {
@@ -8566,10 +8612,10 @@ Lagain:
                     e1->toChars(), Parameter::argsTypesToChars(tf->parameters, tf->varargs),
                     buf.peekString());
 
-                return new ErrorExp();
+                f = NULL;
             }
         }
-        if (!f)
+        if (!f || f->errors)
             return new ErrorExp();
 
         if (f->needThis())
