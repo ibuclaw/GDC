@@ -54,14 +54,10 @@ struct CompiledCtfeFunction;
 enum TOK;
 
 // Back end
-struct IRState;
-struct Blockx;
 #ifdef IN_GCC
 typedef union tree_node block;
-typedef union tree_node elem;
 #else
 struct block;
-struct elem;
 #endif
 struct code;
 
@@ -599,9 +595,6 @@ public:
     bool hasContinue();
     int blockExit(bool mustNotThrow);
 
-// Back end
-    elem *esync;
-    SynchronizedStatement(Loc loc, elem *esync, Statement *body);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -765,6 +758,8 @@ public:
     void accept(Visitor *v) { v->visit(this); }
 };
 
+Statement* asmSemantic(AsmStatement *s, Scope *sc);
+
 class AsmStatement : public Statement
 {
 public:
@@ -777,7 +772,10 @@ public:
 
     AsmStatement(Loc loc, Token *tokens);
     Statement *syntaxCopy();
-    Statement *semantic(Scope *sc);
+    Statement *semantic(Scope *sc)
+    {
+        return asmSemantic(this, sc);
+    }
     int blockExit(bool mustNotThrow);
 
     void accept(Visitor *v) { v->visit(this); }

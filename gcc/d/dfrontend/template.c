@@ -506,17 +506,19 @@ void TemplateDeclaration::semantic(Scope *sc)
             Type::rtinfo = this;
     }
 
-    if (/*global.params.useArrayBounds &&*/ sc->module)
+    if (sc->module)
     {
         // Generate this function as it may be used
         // when template is instantiated in other modules
+        // even if bounds checking is disabled in this module
         sc->module->toModuleArray();
     }
 
-    if (/*global.params.useAssert &&*/ sc->module)
+    if (sc->module)
     {
         // Generate this function as it may be used
         // when template is instantiated in other modules
+        // even if assertions are disabled in this module
         sc->module->toModuleAssert();
     }
 
@@ -1830,9 +1832,12 @@ Lmatch:
                 oded = tparam->defaultArg(loc, paramscope);
                 if (!oded)
                 {
-                    if (tp &&                           // if tuple parameter and
-                        fptupindex == IDX_NOTFOUND &&   // tuple parameter was not in function parameter list and
-                        ntargs == dedargs->dim - 1)     // we're one argument short (i.e. no tuple argument)
+                    // if tuple parameter and
+                    // tuple parameter was not in function parameter list and
+                    // we're one argument short (i.e. no tuple argument)
+                    if (tp &&
+                        fptupindex == IDX_NOTFOUND &&
+                        ntargs == dedargs->dim - 1)
                     {
                         // make tuple argument an empty tuple
                         oded = (RootObject *)new Tuple();
@@ -2088,8 +2093,9 @@ void functionResolve(Match *m, Dsymbol *dstart, Loc loc, Scope *sc,
             //        tf->mod, tthis_fd->mod, fd->isolateReturn());
             if (MODimplicitConv(tf->mod, tthis_fd->mod) ||
                 tf->isWild() && tf->isShared() == tthis_fd->isShared() ||
-                fd->isolateReturn()/* && tf->isShared() == tthis_fd->isShared()*/)
+                fd->isolateReturn())
             {
+                /* && tf->isShared() == tthis_fd->isShared()*/
                 // Uniquely constructed object can ignore shared qualifier.
                 // TODO: Is this appropriate?
                 tthis_fd = NULL;
@@ -3276,9 +3282,9 @@ MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameter
                             //printf("[%d] s = %s %s, s2 = %s %s\n", j, s->kind(), s->toChars(), s2->kind(), s2->toChars());
                             if (s != s2)
                             {
-                                if (Type *t = s2->getType())
+                                if (Type *tx = s2->getType())
                                 {
-                                    if (s != t->toDsymbol(sc))
+                                    if (s != tx->toDsymbol(sc))
                                         goto Lnomatch;
                                 }
                                 else
@@ -3621,8 +3627,8 @@ MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameter
                     {
                         if (tupi == parameters->dim)
                             goto L1;
-                        TemplateParameter *t = (*parameters)[tupi];
-                        TemplateTupleParameter *tup = t->isTemplateTupleParameter();
+                        TemplateParameter *tx = (*parameters)[tupi];
+                        TemplateTupleParameter *tup = tx->isTemplateTupleParameter();
                         if (tup && tup->ident->equals(tid->ident))
                             break;
                     }
@@ -5610,7 +5616,9 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
 
     // Copy the syntax trees from the TemplateDeclaration
     if (members && speculative && !errors)
-    {}  // Don't copy again so they were previously created.
+    {
+        // Don't copy again so they were previously created.
+    }
     else
         members = Dsymbol::arraySyntaxCopy(tempdecl->members);
 
@@ -6725,14 +6733,14 @@ bool TemplateInstance::hasNestedArgs(Objects *args, bool isstatic)
                 goto Lsa;
             }
             // Emulate Expression::toMangleBuffer call that had exist in TemplateInstance::genIdent.
-            if (ea->op != TOKint64 &&               // IntegerExp
-                ea->op != TOKfloat64 &&             // RealExp
-                ea->op != TOKcomplex80 &&           // CompexExp
-                ea->op != TOKnull &&                // NullExp
-                ea->op != TOKstring &&              // StringExp
-                ea->op != TOKarrayliteral &&        // ArrayLiteralExp
-                ea->op != TOKassocarrayliteral &&   // AssocArrayLiteralExp
-                ea->op != TOKstructliteral)         // StructLiteralExp
+            if (ea->op != TOKint64 &&
+                ea->op != TOKfloat64 &&
+                ea->op != TOKcomplex80 &&
+                ea->op != TOKnull &&
+                ea->op != TOKstring &&
+                ea->op != TOKarrayliteral &&
+                ea->op != TOKassocarrayliteral &&
+                ea->op != TOKstructliteral)
             {
                 ea->error("expression %s is not a valid template value argument", ea->toChars());
             }
@@ -7151,10 +7159,10 @@ void TemplateInstance::toCBufferTiargs(OutBuffer *buf, HdrGenState *hgs)
             }
             else if (Expression *e = isExpression(oarg))
             {
-                if (e->op == TOKint64 ||    // IntegerExp(10, true, false, 'c')
-                    e->op == TOKfloat64 ||  // RealExp(3.14, 1.4i)
-                    e->op == TOKnull ||     // NullExp
-                    e->op == TOKstring ||   // StringExp
+                if (e->op == TOKint64 ||
+                    e->op == TOKfloat64 ||
+                    e->op == TOKnull ||
+                    e->op == TOKstring ||
                     e->op == TOKthis)
                 {
                     buf->writestring(e->toChars());
@@ -7564,7 +7572,9 @@ void TemplateMixin::semantic(Scope *sc)
 
     // Copy the syntax trees from the TemplateDeclaration
     if (scx && members && !errors)
-    {}  // Don't copy again so they were previously created.
+    {
+        // Don't copy again so they were previously created.
+    }
     else
         members = Dsymbol::arraySyntaxCopy(tempdecl->members);
     if (!members)

@@ -2640,7 +2640,8 @@ bool FuncDeclaration::overloadInsert(Dsymbol *s)
     {   printf("type = %s\n", type->toChars());
         printf("fd->type = %s\n", fd->type->toChars());
     }
-    if (type && fd->type &&      // can be NULL for overloaded constructors
+    // fd->type can be NULL for overloaded constructors
+    if (type && fd->type &&
         fd->type->covariant(type) &&
         fd->type->mod == type->mod &&
         !isFuncAliasDeclaration())
@@ -3656,7 +3657,6 @@ bool FuncDeclaration::addPreInvariant()
     AggregateDeclaration *ad = isThis();
     ClassDeclaration *cd = ad ? ad->isClassDeclaration() : NULL;
     return (ad && !(cd && cd->isCPPclass()) &&
-            //ad->isClassDeclaration() &&
             global.params.useInvariants &&
             (protection == PROTprotected || protection == PROTpublic || protection == PROTexport) &&
             !naked &&
@@ -3669,7 +3669,6 @@ bool FuncDeclaration::addPostInvariant()
     ClassDeclaration *cd = ad ? ad->isClassDeclaration() : NULL;
     return (ad && !(cd && cd->isCPPclass()) &&
             ad->inv &&
-            //ad->isClassDeclaration() &&
             global.params.useInvariants &&
             (protection == PROTprotected || protection == PROTpublic || protection == PROTexport) &&
             !naked &&
@@ -4011,14 +4010,15 @@ bool FuncDeclaration::needsCodegen()
             break;
     }
 
+    /* The issue is that if the importee is compiled with a different -debug
+     * setting than the importer, the importer may believe it exists
+     * in the compiled importee when it does not, when the instantiation
+     * is behind a conditional debug declaration.
+     */
+    // workaround for Bugzilla 11239
     if (global.params.useUnitTests ||
         global.params.allInst ||
-        /* The issue is that if the importee is compiled with a different -debug
-         * setting than the importer, the importer may believe it exists
-         * in the compiled importee when it does not, when the instantiation
-         * is behind a conditional debug declaration.
-         */
-        global.params.debuglevel)       // workaround for Bugzilla 11239
+        global.params.debuglevel)
     {
         return true;
     }

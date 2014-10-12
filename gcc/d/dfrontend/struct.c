@@ -230,9 +230,11 @@ void AggregateDeclaration::semantic3(Scope *sc)
         }
         sc = sc->pop();
 
+        // don't do it for unused deprecated types
+        // or error types
         if (!getRTInfo && Type::rtinfo &&
-            (!isDeprecated() || global.params.useDeprecated) && // don't do it for unused deprecated types
-            (type && type->ty != Terror)) // or error types
+            (!isDeprecated() || global.params.useDeprecated) &&
+            (type && type->ty != Terror))
         {
             // Evaluate: RTinfo!type
             Objects *tiargs = new Objects();
@@ -831,7 +833,7 @@ void StructDeclaration::semantic(Scope *sc)
         Dsymbol *scall = search(Loc(), Id::call);
         if (scall)
         {
-            unsigned errors = global.startGagging();
+            unsigned xerrors = global.startGagging();
             unsigned oldspec = global.speculativeGag;
             global.speculativeGag = global.gag;
             sc = sc->push();
@@ -839,7 +841,7 @@ void StructDeclaration::semantic(Scope *sc)
             FuncDeclaration *fcall = resolveFuncCall(loc, sc, scall, NULL, NULL, NULL, 1);
             sc = sc->pop();
             global.speculativeGag = oldspec;
-            global.endGagging(errors);
+            global.endGagging(xerrors);
 
             if (fcall && fcall->isStatic())
             {

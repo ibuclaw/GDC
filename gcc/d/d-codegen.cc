@@ -422,14 +422,14 @@ convert_expr (tree exp, Type *etype, Type *totype)
       if (tbtype->ty == Taarray)
 	return build_vconvert (totype->toCtype(), exp);
       // Can convert associative arrays to void pointers.
-      else if (tbtype == Type::tvoidptr)
+      else if (tbtype->ty == Tpointer && tbtype->nextOf()->ty == Tvoid)
 	return build_vconvert (totype->toCtype(), exp);
       // else, default conversion, which should product an error
       break;
 
     case Tpointer:
       // Can convert void pointers to associative arrays too...
-      if (tbtype->ty == Taarray && ebtype == Type::tvoidptr)
+      if (tbtype->ty == Taarray && ebtype->nextOf()->ty == Tvoid)
 	return build_vconvert (totype->toCtype(), exp);
       break;
 

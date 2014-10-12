@@ -1362,9 +1362,9 @@ Lnomatch:
         ExpInitializer *ei = init->isExpInitializer();
         if (ei && isScope())
         {
-            // See if initializer is a NewExp that can be allocated on the stack
             if (ei->exp->op == TOKnew)
             {
+                // See if initializer is a NewExp that can be allocated on the stack
                 NewExp *ne = (NewExp *)ei->exp;
                 if (!(ne->newargs && ne->newargs->dim))
                 {
@@ -1374,9 +1374,9 @@ Lnomatch:
                         onstack = 2;
                 }
             }
-            // or a delegate that doesn't escape a reference to the function
             else if (ei->exp->op == TOKfunction)
             {
+                // or a delegate that doesn't escape a reference to the function
                 FuncDeclaration *f = ((FuncExp *)ei->exp)->fd;
                 f->tookAddressOf--;
             }
@@ -1476,8 +1476,10 @@ Lnomatch:
                         /* Look to see if initializer involves a copy constructor
                          * (which implies a postblit)
                          */
-                        if (sd->cpctor &&               // there is a copy constructor
-                            tb2->toDsymbol(NULL) == sd)  // exp is the same struct
+                         // there is a copy constructor
+                         // and exp is the same struct
+                        if (sd->cpctor &&
+                            tb2->toDsymbol(NULL) == sd)
                         {
                             // The only allowable initializer is a (non-copy) constructor
                             if (exp->isLvalue())
@@ -1835,9 +1837,12 @@ void VarDeclaration::checkNestedReference(Scope *sc, Loc loc)
                         /* This is necessary to avoid breaking tests for 8751 & 8793.
                          * See: compilable/testInference.d
                          */
-                        if (type->isMutable() ||                            // mutable variable
-                            !type->implicitConvTo(type->immutableOf()) ||   // has any mutable indirections
-                            !fdv->isPureBypassingInference())               // does not belong to pure function
+                        // if is a mutable variable or
+                        // has any mutable indirections or
+                        // does not belong to pure function
+                        if (type->isMutable() ||
+                            !type->implicitConvTo(type->immutableOf()) ||
+                            !fdv->isPureBypassingInference())
                         {
                             fld->setImpure();   // Bugzilla 9415
                         }

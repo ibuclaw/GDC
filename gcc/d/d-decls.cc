@@ -35,7 +35,7 @@
 // Create the symbol with tree for struct initialisers.
 
 Symbol *
-SymbolDeclaration::toSymbol (void)
+SymbolDeclaration::toSymbol()
 {
   return dsym->toInitializer();
 }
@@ -65,7 +65,7 @@ Dsymbol::toSymbolX (const char *prefix, int, type *, const char *suffix)
 
 
 Symbol *
-Dsymbol::toSymbol (void)
+Dsymbol::toSymbol()
 {
   fprintf (global.stdmsg, "Dsymbol::toSymbol() '%s', kind = '%s'\n", toChars(), kind());
   gcc_unreachable();          // BUG: implement
@@ -76,7 +76,7 @@ Dsymbol::toSymbol (void)
 // then build the chain of NAMESPACE_DECLs.
 
 Symbol *
-Dsymbol::toImport (void)
+Dsymbol::toImport()
 {
   if (!isym)
     {
@@ -136,7 +136,7 @@ Dsymbol::toImport (Symbol *sym)
 // Create the symbol with VAR_DECL tree for static variables.
 
 Symbol *
-VarDeclaration::toSymbol (void)
+VarDeclaration::toSymbol()
 {
   if (!csym)
     {
@@ -254,7 +254,7 @@ VarDeclaration::toSymbol (void)
 // Create the symbol with tree for classinfo decls.
 
 Symbol *
-ClassInfoDeclaration::toSymbol (void)
+ClassInfoDeclaration::toSymbol()
 {
   return cd->toSymbol();
 }
@@ -262,7 +262,7 @@ ClassInfoDeclaration::toSymbol (void)
 // Create the symbol with tree for typeinfo decls.
 
 Symbol *
-TypeInfoDeclaration::toSymbol (void)
+TypeInfoDeclaration::toSymbol()
 {
   if (!csym)
     {
@@ -288,7 +288,7 @@ TypeInfoDeclaration::toSymbol (void)
 // Create the symbol with tree for typeinfoclass decls.
 
 Symbol *
-TypeInfoClassDeclaration::toSymbol (void)
+TypeInfoClassDeclaration::toSymbol()
 {
   gcc_assert (tinfo->ty == Tclass);
   TypeClass *tc = (TypeClass *) tinfo;
@@ -299,7 +299,7 @@ TypeInfoClassDeclaration::toSymbol (void)
 // Create the symbol with tree for function aliases.
 
 Symbol *
-FuncAliasDeclaration::toSymbol (void)
+FuncAliasDeclaration::toSymbol()
 {
   return funcalias->toSymbol();
 }
@@ -307,7 +307,7 @@ FuncAliasDeclaration::toSymbol (void)
 // Create the symbol with FUNCTION_DECL tree for functions.
 
 Symbol *
-FuncDeclaration::toSymbol (void)
+FuncDeclaration::toSymbol()
 {
   if (!csym)
     {
@@ -316,6 +316,13 @@ FuncDeclaration::toSymbol (void)
       TypeFunction *ftype = (TypeFunction *) (tintro ? tintro : type);
       tree fntype = NULL_TREE;
       tree vindex = NULL_TREE;
+
+      // Run full semantic on symbols we need to know about during compilation.
+      if (inferRetType && type && !type->nextOf() && !functionSemantic())
+	{
+	  csym->Stree = error_mark_node;
+	  return csym;
+	}
 
       // Save mangle/debug names for making thunks.
       csym->Sident = mangleExact(this);
@@ -533,7 +540,7 @@ FuncDeclaration::toThunkSymbol (int offset)
 // Create the "ClassInfo" symbol for classes.
 
 Symbol *
-ClassDeclaration::toSymbol (void)
+ClassDeclaration::toSymbol()
 {
   if (!csym)
     {
@@ -559,7 +566,7 @@ ClassDeclaration::toSymbol (void)
 // Create the "InterfaceInfo" symbol for interfaces.
 
 Symbol *
-InterfaceDeclaration::toSymbol (void)
+InterfaceDeclaration::toSymbol()
 {
   if (!csym)
     {
@@ -584,7 +591,7 @@ InterfaceDeclaration::toSymbol (void)
 // Create the "ModuleInfo" symbol for a given module.
 
 Symbol *
-Module::toSymbol (void)
+Module::toSymbol()
 {
   if (!csym)
     {
@@ -609,7 +616,7 @@ Module::toSymbol (void)
 }
 
 Symbol *
-StructLiteralExp::toSymbol (void)
+StructLiteralExp::toSymbol()
 {
   if (!sym)
     {
@@ -638,7 +645,7 @@ StructLiteralExp::toSymbol (void)
 }
 
 Symbol *
-ClassReferenceExp::toSymbol (void)
+ClassReferenceExp::toSymbol()
 {
   if (!value->sym)
     {
@@ -675,7 +682,7 @@ ClassReferenceExp::toSymbol (void)
 // needed directly (like for rtti comparisons), make it directly accessible.
 
 Symbol *
-ClassDeclaration::toVtblSymbol (void)
+ClassDeclaration::toVtblSymbol()
 {
   if (!vtblsym)
     {
@@ -716,7 +723,7 @@ ClassDeclaration::toVtblSymbol (void)
 // are in the toObjFile phase.
 
 Symbol *
-AggregateDeclaration::toInitializer (void)
+AggregateDeclaration::toInitializer()
 {
   if (!sinit)
     {
@@ -757,7 +764,7 @@ AggregateDeclaration::toInitializer (void)
 // Create the static initializer for the typedef variable.
 
 Symbol *
-TypedefDeclaration::toInitializer (void)
+TypedefDeclaration::toInitializer()
 {
   if (!sinit)
     sinit = toSymbolX ("__init", 0, 0, "Z");
@@ -784,7 +791,7 @@ TypedefDeclaration::toInitializer (void)
 // Create the static initializer for the enum.
 
 Symbol *
-EnumDeclaration::toInitializer (void)
+EnumDeclaration::toInitializer()
 {
   if (!sinit)
     {
@@ -818,7 +825,7 @@ EnumDeclaration::toInitializer (void)
 //
 
 void
-ClassDeclaration::toDebug (void)
+ClassDeclaration::toDebug()
 {
   tree rec_type = TREE_TYPE (type->toCtype());
   build_type_decl (rec_type, this);
@@ -826,7 +833,7 @@ ClassDeclaration::toDebug (void)
 }
 
 void
-EnumDeclaration::toDebug (void)
+EnumDeclaration::toDebug()
 {
   TypeEnum *tc = (TypeEnum *) type;
   if (!tc->sym->defaultval || type->isZeroInit())
@@ -844,12 +851,12 @@ EnumDeclaration::toDebug (void)
 }
 
 void
-TypedefDeclaration::toDebug (void)
+TypedefDeclaration::toDebug()
 {
 }
 
 void
-StructDeclaration::toDebug (void)
+StructDeclaration::toDebug()
 {
   tree ctype = type->toCtype();
   build_type_decl (ctype, this);
@@ -860,19 +867,19 @@ StructDeclaration::toDebug (void)
 // Stubs unused in GDC, but required for D front-end.
 
 Symbol *
-Module::toModuleAssert (void)
+Module::toModuleAssert()
 {
   return NULL;
 }
 
 Symbol *
-Module::toModuleUnittest (void)
+Module::toModuleUnittest()
 {
   return NULL;
 }
 
 Symbol *
-Module::toModuleArray (void)
+Module::toModuleArray()
 {
   return NULL;
 }

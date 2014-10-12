@@ -2275,7 +2275,8 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
         else
         {
             AddExp ea(loc, lwr, upr);
-            Expression *e = typeCombine(&ea, sc);
+            if (Expression *ex = typeCombine(&ea, sc))
+                return new ErrorStatement();
             arg->type = ea.type;
             lwr = ea.e1;
             upr = ea.e2;
@@ -2902,7 +2903,7 @@ Statement *SwitchStatement::semantic(Scope *sc)
     {   hasNoDefault = 1;
 
         if (!isFinal && !body->isErrorStatement())
-           deprecation("non-final switch statement without a default is deprecated");
+           deprecation("non-final switch statement without a default is deprecated; add 'default: assert(0);' or 'default: break;'");
 
         // Generate runtime error if the default is hit
         Statements *a = new Statements();
@@ -3826,15 +3827,6 @@ SynchronizedStatement::SynchronizedStatement(Loc loc, Expression *exp, Statement
 {
     this->exp = exp;
     this->body = body;
-    this->esync = NULL;
-}
-
-SynchronizedStatement::SynchronizedStatement(Loc loc, elem *esync, Statement *body)
-    : Statement(loc)
-{
-    this->exp = NULL;
-    this->body = body;
-    this->esync = esync;
 }
 
 Statement *SynchronizedStatement::syntaxCopy()

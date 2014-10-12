@@ -22,6 +22,7 @@
 
 #include "mars.h"
 #include "module.h"
+#include "scope.h"
 #include "declaration.h"
 
 Global global;
@@ -368,6 +369,15 @@ ensurePathToNameExists(Loc loc, const char *name)
 TypeTuple *toArgTypes(Type *)
 {
   return new TypeTuple();
+}
+
+// Semantically analyze AsmStatement where SC is the scope.
+
+Statement *
+asmSemantic(AsmStatement *s, Scope *sc)
+{
+  sc->func->hasReturnExp |= 8;
+  return s;
 }
 
 // Perform the "inline copying" of a default argument E for a function parameter.

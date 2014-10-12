@@ -126,7 +126,7 @@ D_GENERATED_OBJS = d/id.gen.o d/impcnvtab.gen.o
 D_GLUE_OBJS = d/d-lang.glue.o d/d-decls.glue.o d/d-codegen.glue.o \
               d/d-objfile.glue.o d/d-irstate.glue.o \
               d/d-convert.glue.o d/d-todt.glue.o d/d-longdouble.glue.o \
-              d/d-gt.cglue.o d/d-builtins.glue.o d/d-asmstmt.glue.o \
+              d/d-gt.cglue.o d/d-builtins.glue.o \
               d/d-incpath.glue.o d/d-ctype.glue.o d/d-elem.glue.o \
               d/toir.glue.o d/d-typinf.glue.o d/d-port.glue.o \
               d/d-target.glue.o d/d-glue.glue.o
@@ -187,7 +187,6 @@ d/d-todt.glue.o: d/d-todt.cc $(D_TREE_H)
 d/d-typinf.glue.o: d/d-typinf.cc $(D_TREE_H)
 d/d-longdouble.glue.o: d/d-longdouble.cc d/longdouble.h $(D_TREE_H)
 d/d-port.glue.o: d/d-port.cc d/dfrontend/port.h $(D_TREE_H)
-d/d-asmstmt.glue.o: d/d-asmstmt.cc $(D_TREE_H)
 d/d-gt.cglue.o: d/d-gt.cc $(D_TREE_H)
 d/d-builtins.glue.o: d/d-builtins.cc $(D_TREE_H)
 

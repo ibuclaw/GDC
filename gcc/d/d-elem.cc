@@ -2415,7 +2415,6 @@ StructLiteralExp::toElem (IRState *irs)
 	    }
 	  else
 	    {
-	      // %% Could use memset if is zero init...
 	      exp_tree = build_local_temp (fld_type->toCtype());
 	      Type *etype = fld_type;
 
