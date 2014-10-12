@@ -33,6 +33,8 @@ void functionToBufferWithIdent(TypeFunction *t, OutBuffer *buf, const char *iden
 void genCmain(Scope *sc);
 void toBufferShort(Type *t, OutBuffer *buf, HdrGenState *hgs);
 
+void checkGC(FuncDeclaration *func, Statement *stmt);
+
 /* A visitor to walk entire statements and provides ability to replace any sub-statements.
  */
 class StatementRewriteWalker : public Visitor
@@ -486,7 +488,8 @@ void FuncDeclaration::semantic(Scope *sc)
                 tret = Type::tvoid;
             }
             else
-            {   tret = ad->handle;
+            {
+                tret = ad->handleType();
                 assert(tret);
                 tret = tret->addStorageClass(storage_class | sc->stc);
                 tret = tret->addMod(type->mod);
@@ -1140,7 +1143,7 @@ Ldone:
     if (fbody &&
         (isFuncLiteralDeclaration() ||
          isInstantiated() && !isVirtualMethod() &&
-         !(ti = parent->isTemplateInstance(), ti && !ti->isTemplateMixin() && ti->name != ident)))
+         !(ti = parent->isTemplateInstance(), ti && !ti->isTemplateMixin() && ti->tempdecl->ident != ident)))
     {
         if (f->purity == PUREimpure)        // purity not specified
             flags |= FUNCFLAGpurityInprocess;
@@ -1293,18 +1296,24 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->fieldinit = NULL;
         sc2->fieldinit_dim = 0;
 
+        if (AggregateDeclaration *ad = isMember2())
+        {
+            FuncLiteralDeclaration *fld = isFuncLiteralDeclaration();
+            if (fld && !sc->intypeof)
+            {
+                if (fld->tok == TOKreserved)
+                    fld->tok = TOKfunction;
+                if (isNested())
+                {
+                    error("cannot be class members");
+                    return;
+                }
+            }
+            assert(!isNested() || sc->intypeof);    // can't be both member and nested
+        }
+
         // Declare 'this'
         AggregateDeclaration *ad = isThis();
-        if (ad)
-        {
-            if (isFuncLiteralDeclaration() && isNested() && !sc->intypeof)
-            {
-                error("function literals cannot be class members");
-                return;
-            }
-            else
-                assert(!isNested() || sc->intypeof);    // can't be both member and nested
-        }
         vthis = declareThis(sc2, ad);
 
         // Declare hidden variable _arguments[] and _argptr
@@ -2074,6 +2083,19 @@ void FuncDeclaration::semantic3(Scope *sc)
         f->trust = TRUSTsafe;
     }
 
+    if (fbody)
+        checkGC(this, fbody);
+
+    if (needsClosure() && setGCUse(loc, "Using closure causes gc allocation"))
+        error("Can not use closures in @nogc code");
+
+    if (flags & FUNCFLAGgcuseInprocess)
+    {
+        flags &= ~FUNCFLAGgcuseInprocess;
+        if (type == f) f = (TypeFunction *)f->copy();
+        f->gcuse = GCUSEnogc;
+    }
+
     // reset deco to apply inference result to mangled name
     if (f != type)
         f->deco = NULL;
@@ -2126,7 +2148,7 @@ bool FuncDeclaration::functionSemantic()
 
     TemplateInstance *ti;
     if (isInstantiated() && !isVirtualMethod() &&
-        !(ti = parent->isTemplateInstance(), ti && !ti->isTemplateMixin() && ti->name != ident))
+        !(ti = parent->isTemplateInstance(), ti && !ti->isTemplateMixin() && ti->tempdecl->ident != ident))
     {
         AggregateDeclaration *ad = isMember2();
         if (ad && ad->sizeok != SIZEOKdone)
@@ -2197,16 +2219,15 @@ void FuncDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
 VarDeclaration *FuncDeclaration::declareThis(Scope *sc, AggregateDeclaration *ad)
 {
-    if (ad)
-    {   VarDeclaration *v;
-
+    if (ad && !isFuncLiteralDeclaration())
+    {
+        VarDeclaration *v;
         {
-            assert(ad->handle);
-            Type *thandle = ad->handle;
+            Type *thandle = ad->handleType();
+            assert(thandle);
             thandle = thandle->addMod(type->mod);
             thandle = thandle->addStorageClass(storage_class);
             v = new ThisDeclaration(loc, thandle);
-            //v = new ThisDeclaration(loc, isCtorDeclaration() ? ad->handle : thandle);
             v->storage_class |= STCparameter;
             if (thandle->ty == Tstruct)
                 v->storage_class |= STCref;
@@ -2860,6 +2881,23 @@ static void MODMatchToBuffer(OutBuffer *buf, unsigned char lhsMod, unsigned char
 }
 
 /********************************************
+ * Returns true if function was declared
+ * directly or indirectly in a unittest block
+ */
+bool FuncDeclaration::inUnittest()
+{
+    Dsymbol *f = this;
+    do
+    {
+        if (f->isUnitTestDeclaration())
+            return true;
+        f = f->toParent();
+    } while (f);
+
+    return false;
+}
+
+/********************************************
  * find function template root in overload list
  */
 
@@ -3115,7 +3153,7 @@ Lerror:
         const char *lastprms = Parameter::argsTypesToChars(tf1->parameters, tf1->varargs);
         const char *nextprms = Parameter::argsTypesToChars(tf2->parameters, tf2->varargs);
         ::error(loc, "%s.%s called with argument types %s matches both:\n"
-                     "\t%s: %s%s\nand:\n\t%s: %s%s",
+                     "%s:     %s%s\nand:\n%s:     %s%s",
                 s->parent->toPrettyChars(), s->ident->toChars(),
                 fargsBuf.peekString(),
                 m.lastf->loc.toChars(), m.lastf->toPrettyChars(), lastprms,
@@ -3150,11 +3188,10 @@ LabelDsymbol *FuncDeclaration::searchLabel(Identifier *ident)
  */
 
 AggregateDeclaration *FuncDeclaration::isThis()
-{   AggregateDeclaration *ad;
-
+{
     //printf("+FuncDeclaration::isThis() '%s'\n", toChars());
-    ad = NULL;
-    if ((storage_class & STCstatic) == 0)
+    AggregateDeclaration *ad = NULL;
+    if ((storage_class & STCstatic) == 0 && !isFuncLiteralDeclaration())
     {
         ad = isMember2();
     }
@@ -3163,13 +3200,12 @@ AggregateDeclaration *FuncDeclaration::isThis()
 }
 
 AggregateDeclaration *FuncDeclaration::isMember2()
-{   AggregateDeclaration *ad;
-
+{
     //printf("+FuncDeclaration::isMember2() '%s'\n", toChars());
-    ad = NULL;
+    AggregateDeclaration *ad = NULL;
     for (Dsymbol *s = this; s; s = s->parent)
     {
-//printf("\ts = '%s', parent = '%s', kind = %s\n", s->toChars(), s->parent->toChars(), s->parent->kind());
+        //printf("\ts = '%s', parent = '%s', kind = %s\n", s->toChars(), s->parent->toChars(), s->parent->kind());
         ad = s->isMember();
         if (ad)
         {
@@ -3284,12 +3320,12 @@ void FuncDeclaration::appendState(Statement *s)
     }
 }
 
-const char *FuncDeclaration::toPrettyChars()
+const char *FuncDeclaration::toPrettyChars(bool QualifyTypes)
 {
     if (isMain())
         return "D main";
     else
-        return Dsymbol::toPrettyChars();
+        return Dsymbol::toPrettyChars(QualifyTypes);
 }
 
 /** for diagnostics, e.g. 'int foo(int x, int y) pure' */
@@ -3503,6 +3539,52 @@ bool FuncDeclaration::setUnsafe()
         ((TypeFunction *)type)->trust = TRUSTsystem;
     }
     else if (isSafe())
+        return true;
+    return false;
+}
+
+/**************************************
+ * Return true if the function is marked
+ * as @nogc and therefore must not allocate.
+ */
+bool FuncDeclaration::isNOGC()
+{
+    assert(type->ty == Tfunction);
+    if (flags & FUNCFLAGgcuseInprocess)
+        setGCUse();
+    return ((TypeFunction *)type)->gcuse == GCUSEnogc;
+}
+
+/**************************************
+ * Mark function as using GC, warn on -vgc, return
+ * true if GC access is an error (@nogc)
+ */
+bool FuncDeclaration::setGCUse(Loc loc, const char* warn)
+{
+    if (setGCUse())
+    {
+        return true;
+    }
+    //Only warn about errors in 'root' modules
+    else if (global.params.vgc && getModule() && getModule()->isRoot()
+        && !inUnittest())
+    {
+        fprintf(global.stdmsg, "%s: vgc: %s\n", loc.toChars(), warn);
+    }
+    return false;
+}
+
+/**************************************
+ * Same as above, but do not warn on -vgc
+ */
+bool FuncDeclaration::setGCUse()
+{
+    if (flags & FUNCFLAGgcuseInprocess)
+    {
+        flags &= ~FUNCFLAGgcuseInprocess;
+        ((TypeFunction *)type)->gcuse = GCUSEgc;
+    }
+    else if (isNOGC())
         return true;
     return false;
 }
@@ -4195,6 +4277,16 @@ bool FuncLiteralDeclaration::isVirtual()
     return false;
 }
 
+bool FuncLiteralDeclaration::addPreInvariant()
+{
+    return false;
+}
+
+bool FuncLiteralDeclaration::addPostInvariant()
+{
+    return false;
+}
+
 const char *FuncLiteralDeclaration::kind()
 {
     // GCC requires the (char*) casts
@@ -4238,15 +4330,15 @@ void FuncLiteralDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
     }
 }
 
-const char *FuncLiteralDeclaration::toPrettyChars()
+const char *FuncLiteralDeclaration::toPrettyChars(bool QualifyTypes)
 {
     if (parent)
     {
         TemplateInstance *ti = parent->isTemplateInstance();
         if (ti)
-            return ti->tempdecl->toPrettyChars();
+            return ti->tempdecl->toPrettyChars(QualifyTypes);
     }
-    return Dsymbol::toPrettyChars();
+    return Dsymbol::toPrettyChars(QualifyTypes);
 }
 
 /********************************* CtorDeclaration ****************************/

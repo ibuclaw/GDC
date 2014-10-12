@@ -426,6 +426,10 @@ d_handle_option (size_t scode, const char *arg, int value,
       global.params.ddocfiles->push (arg);
       break;
 
+    case OPT_fd_vgc:
+      global.params.vgc = value;
+      break;
+
     case OPT_fd_verbose:
       global.params.verbose = value;
       break;

@@ -208,7 +208,12 @@ char *Dsymbol::toChars()
     return ident ? ident->toChars() : (char *)"__anonymous";
 }
 
-const char *Dsymbol::toPrettyChars()
+char *Dsymbol::toPrettyCharsHelper()
+{
+    return toChars();
+}
+
+const char *Dsymbol::toPrettyChars(bool QualifyTypes)
 {   Dsymbol *p;
     char *s;
     char *q;
@@ -220,14 +225,14 @@ const char *Dsymbol::toPrettyChars()
 
     len = 0;
     for (p = this; p; p = p->parent)
-        len += strlen(p->toChars()) + 1;
+        len += strlen(QualifyTypes ? p->toPrettyCharsHelper() : p->toChars()) + 1;
 
     s = (char *)mem.malloc(len);
     q = s + len - 1;
     *q = 0;
     for (p = this; p; p = p->parent)
     {
-        char *t = p->toChars();
+        char *t = QualifyTypes ? p->toPrettyCharsHelper() : p->toChars();
         len = strlen(t);
         q -= len;
         memcpy(q, t, len);
@@ -898,9 +903,8 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
         //printf("\ts = '%s.%s'\n",toChars(),s1->toChars());
         return s1;
     }
-    else if (!imports)
-        return NULL;
-    else
+
+    if (imports)
     {
         Dsymbol *s = NULL;
         OverloadSet *a = NULL;
@@ -994,24 +998,26 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
             }
         }
 
-        /* Build special symbol if we had multiple finds
-         */
-        if (a)
-        {   assert(s);
-            a->push(s);
-            s = a;
-        }
-
         if (s)
         {
+            /* Build special symbol if we had multiple finds
+             */
+            if (a)
+            {
+                a->push(s);
+                s = a;
+            }
+
             if (!(flags & IgnoreErrors) && s->prot() == PROTprivate && !s->parent->isTemplateMixin())
             {
                 if (!s->isImport())
                     error(loc, "%s %s is private", s->kind(), s->toPrettyChars());
             }
+            return s;
         }
-        return s;
     }
+
+    return s1;
 }
 
 void ScopeDsymbol::importScope(Dsymbol *s, PROT protection)
@@ -1326,13 +1332,14 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
 {
     //printf("ArrayScopeSymbol::search('%s', flags = %d)\n", ident->toChars(), flags);
     if (ident == Id::dollar)
-    {   VarDeclaration **pvar;
+    {
+        VarDeclaration **pvar;
         Expression *ce;
 
     L1:
-
         if (td)
-        {   /* $ gives the number of elements in the tuple
+        {
+            /* $ gives the number of elements in the tuple
              */
             VarDeclaration *v = new VarDeclaration(loc, Type::tsize_t, Id::dollar, NULL);
             Expression *e = new IntegerExp(Loc(), td->objects->dim, Type::tsize_t);
@@ -1343,7 +1350,8 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
         }
 
         if (type)
-        {   /* $ gives the number of type entries in the type tuple
+        {
+            /* $ gives the number of type entries in the type tuple
              */
             VarDeclaration *v = new VarDeclaration(loc, Type::tsize_t, Id::dollar, NULL);
             Expression *e = new IntegerExp(Loc(), type->arguments->dim, Type::tsize_t);
@@ -1354,34 +1362,36 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
         }
 
         if (exp->op == TOKindex)
-        {   /* array[index] where index is some function of $
+        {
+            /* array[index] where index is some function of $
              */
             IndexExp *ie = (IndexExp *)exp;
-
             pvar = &ie->lengthVar;
             ce = ie->e1;
         }
         else if (exp->op == TOKslice)
-        {   /* array[lwr .. upr] where lwr or upr is some function of $
+        {
+            /* array[lwr .. upr] where lwr or upr is some function of $
              */
             SliceExp *se = (SliceExp *)exp;
-
             pvar = &se->lengthVar;
             ce = se->e1;
         }
         else if (exp->op == TOKarray)
-        {   /* array[e0, e1, e2, e3] where e0, e1, e2 are some function of $
+        {
+            /* array[e0, e1, e2, e3] where e0, e1, e2 are some function of $
              * $ is a opDollar!(dim)() where dim is the dimension(0,1,2,...)
              */
             ArrayExp *ae = (ArrayExp *)exp;
-
             pvar = &ae->lengthVar;
             ce = ae->e1;
         }
         else
+        {
             /* Didn't find $, look in enclosing scope(s).
              */
             return NULL;
+        }
 
         while (ce->op == TOKcomma)
             ce = ((CommaExp *)ce)->e2;
@@ -1394,7 +1404,8 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
         {
             Type *t = ((TypeExp *)ce)->type;
             if (t->ty == Ttuple)
-            {   type = (TypeTuple *)t;
+            {
+                type = (TypeTuple *)t;
                 goto L1;
             }
         }
@@ -1403,12 +1414,14 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
          * multiple times, it gets set only once.
          */
         if (!*pvar)             // if not already initialized
-        {   /* Create variable v and set it to the value of $
+        {
+            /* Create variable v and set it to the value of $
              */
             VarDeclaration *v;
             Type *t;
             if (ce->op == TOKtuple)
-            {   /* It is for an expression tuple, so the
+            {
+                /* It is for an expression tuple, so the
                  * length will be a const.
                  */
                 Expression *e = new IntegerExp(Loc(), ((TupleExp *)ce)->exps->dim, Type::tsize_t);
@@ -1417,18 +1430,10 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
             }
             else if (ce->type && (t = ce->type->toBasetype()) != NULL &&
                      (t->ty == Tstruct || t->ty == Tclass))
-            {   // Look for opDollar
+            {
+                // Look for opDollar
                 assert(exp->op == TOKarray || exp->op == TOKslice);
-                AggregateDeclaration *ad = NULL;
-
-                if (t->ty == Tclass)
-                {
-                    ad = ((TypeClass *)t)->sym;
-                }
-                else if (t->ty == Tstruct)
-                {
-                    ad = ((TypeStruct *)t)->sym;
-                }
+                AggregateDeclaration *ad = isAggregate(t);
                 assert(ad);
 
                 Dsymbol *s = ad->search(loc, Id::opDollar);
@@ -1457,7 +1462,8 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
                     e = new DotTemplateInstanceExp(loc, ce, td->ident, tiargs);
                 }
                 else
-                {   /* opDollar exists, but it's not a template.
+                {
+                    /* opDollar exists, but it's not a template.
                      * This is acceptable ONLY for single-dimension indexing.
                      * Note that it's impossible to have both template & function opDollar,
                      * because both take no arguments.
@@ -1478,10 +1484,11 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
                 if (t && t->ty == Tfunction)
                     e = new CallExp(e->loc, e);
                 v = new VarDeclaration(loc, NULL, Id::dollar, new ExpInitializer(Loc(), e));
-                v->storage_class |= STCtemp;
+                v->storage_class |= STCtemp | STCctfe;
             }
             else
-            {   /* For arrays, $ will either be a compile-time constant
+            {
+                /* For arrays, $ will either be a compile-time constant
                  * (in which case its value in set during constant-folding),
                  * or a variable (in which case an expression is created in
                  * toir.c).

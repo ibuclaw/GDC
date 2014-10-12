@@ -52,7 +52,7 @@ public:
 
     Package *isPackage() { return this; }
 
-    virtual void semantic(Scope *) { }
+    void semantic(Scope *) { }
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
     void accept(Visitor *v) { v->visit(this); }
 

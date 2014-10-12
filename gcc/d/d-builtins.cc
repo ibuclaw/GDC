@@ -222,7 +222,6 @@ build_dtype (tree t)
       sdecl->sizeok = SIZEOKdone;
       sdecl->type = new TypeStruct (sdecl);
       sdecl->type->ctype = t;
-      sdecl->handle = sdecl->type;
       sdecl->type->merge();
 
       // Does not seem necessary to convert fields, but the

@@ -637,6 +637,7 @@ public:
     #define FUNCFLAGpurityInprocess 1   // working on determining purity
     #define FUNCFLAGsafetyInprocess 2   // working on determining safety
     #define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
+    #define FUNCFLAGgcuseInprocess  8   // working on determining gc usage
 
     FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -656,6 +657,7 @@ public:
     bool overloadInsert(Dsymbol *s);
     FuncDeclaration *overloadExactMatch(Type *t);
     TemplateDeclaration *findTemplateDeclRoot();
+    bool inUnittest();
     MATCH leastAsSpecialized(FuncDeclaration *g);
     LabelDsymbol *searchLabel(Identifier *ident);
     AggregateDeclaration *isThis();
@@ -663,7 +665,7 @@ public:
     int getLevel(Loc loc, Scope *sc, FuncDeclaration *fd); // lexical nesting level difference
     void appendExp(Expression *e);
     void appendState(Statement *s);
-    const char *toPrettyChars();
+    const char *toPrettyChars(bool QualifyTypes = false);
     const char *toFullSignature();  // for diagnostics, e.g. 'int foo(int x, int y) pure'
     bool isMain();
     bool isWinMain();
@@ -680,6 +682,9 @@ public:
     bool isSafeBypassingInference();
     bool isTrusted();
     bool setUnsafe();
+    bool isNOGC();
+    bool setGCUse(Loc loc, const char *warn);
+    bool setGCUse();
     bool isolateReturn();
     bool parametersIntersect(Type *t);
     virtual bool isNested();
@@ -747,10 +752,12 @@ public:
     Dsymbol *syntaxCopy(Dsymbol *);
     bool isNested();
     bool isVirtual();
+    bool addPreInvariant();
+    bool addPostInvariant();
 
     FuncLiteralDeclaration *isFuncLiteralDeclaration() { return this; }
     const char *kind();
-    const char *toPrettyChars();
+    const char *toPrettyChars(bool QualifyTypes = false);
     void accept(Visitor *v) { v->visit(this); }
 };
 

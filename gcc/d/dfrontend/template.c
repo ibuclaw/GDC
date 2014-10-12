@@ -2586,7 +2586,7 @@ FuncDeclaration *TemplateDeclaration::doHeaderInstantiation(
         }
         else
         {
-            tret = ad->handle;
+            tret = ad->handleType();
             assert(tret);
             tret = tret->addStorageClass(fd->storage_class | scx->stc);
             tret = tret->addMod(tf->mod);
@@ -5609,6 +5609,12 @@ void TemplateInstance::expandMembers(Scope *sc2)
     for (size_t i = 0; i < members->dim; i++)
     {
         Dsymbol *s = (*members)[i];
+        s->importAll(sc2);
+    }
+
+    for (size_t i = 0; i < members->dim; i++)
+    {
+        Dsymbol *s = (*members)[i];
         //printf("\t[%d] semantic on '%s' %p kind %s in '%s'\n", i, s->toChars(), s, s->kind(), this->toChars());
         //printf("test: enclosing = %d, sc2->parent = %s\n", enclosing, sc2->parent->toChars());
 //      if (enclosing)
@@ -6058,16 +6064,11 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
     if (global.errors != errorsave)
         goto Laftersemantic;
 
-    if (sc->func && aliasdecl && aliasdecl->toAlias()->isFuncDeclaration())
+    if (sc->func && (aliasdecl && aliasdecl->toAlias()->isFuncDeclaration() || !tinst))
     {
         /* Template function instantiation should run semantic3 immediately
          * for attribute inference.
          */
-        //printf("function semantic3 %s inside %s\n", toChars(), sc->func->toChars());
-        trySemantic3(sc2);
-    }
-    else if (sc->func && !tinst)
-    {
         /* If a template is instantiated inside function, the whole instantiation
          * should be done at that position. But, immediate running semantic3 of
          * dependent templates may cause unresolved forward reference (Bugzilla 9050).
@@ -6149,6 +6150,7 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
             }
             semanticRun = PASSinit;
             inst = NULL;
+            symtab = NULL;
         }
     }
 
@@ -6757,7 +6759,7 @@ bool TemplateInstance::findBestMatch(Scope *sc, Expressions *fargs)
 
         if (p.td_ambig)
         {
-            ::error(loc, "%s %s.%s matches more than one template declaration:\n\t%s:%s\nand\n\t%s:%s",
+            ::error(loc, "%s %s.%s matches more than one template declaration:\n%s:     %s\nand\n%s:     %s",
                     p.td_best->kind(), p.td_best->parent->toPrettyChars(), p.td_best->ident->toChars(),
                     p.td_best->loc.toChars() , p.td_best->toChars(),
                     p.td_ambig->loc.toChars(), p.td_ambig->toChars());
@@ -7296,10 +7298,14 @@ void TemplateInstance::semantic3(Scope *sc)
     semanticRun = PASSsemantic3;
     if (!errors && members)
     {
+        TemplateDeclaration *tempdecl = this->tempdecl->isTemplateDeclaration();
+        assert(tempdecl);
+
         sc = tempdecl->scope;
         sc = sc->push(argsym);
         sc = sc->push(this);
         sc->tinst = this;
+
         int needGagging = (speculative && !global.gag);
         int olderrors = global.errors;
         int oldGaggedErrors;
@@ -7310,6 +7316,7 @@ void TemplateInstance::semantic3(Scope *sc)
          */
         if (needGagging)
             oldGaggedErrors = global.startGagging();
+
         for (size_t i = 0; i < members->dim; i++)
         {
             Dsymbol *s = (*members)[i];
@@ -7317,11 +7324,21 @@ void TemplateInstance::semantic3(Scope *sc)
             if (speculative && global.errors != olderrors)
                 break;
         }
-        if (needGagging)
-        {   // If errors occurred, this instantiation failed
-            if (global.endGagging(oldGaggedErrors))
-                errors = true;
+
+        if (global.errors != olderrors)
+        {
+            if (!errors)
+            {
+                if (!tempdecl->literal)
+                    error(loc, "error instantiating");
+                if (tinst)
+                    tinst->printInstantiationTrace();
+            }
+            errors = true;
         }
+        if (needGagging)
+            global.endGagging(oldGaggedErrors);
+
         sc = sc->pop();
         sc->pop();
     }
@@ -7529,6 +7546,16 @@ char *TemplateInstance::toChars()
     toCBuffer(&buf, &hgs);
     s = buf.extractString();
     return s;
+}
+
+char *TemplateInstance::toPrettyCharsHelper()
+{
+    OutBuffer buf;
+    HdrGenState hgs;
+    hgs.fullQualification = 1;
+    toCBuffer(&buf, &hgs);
+
+    return buf.extractString();
 }
 
 int TemplateInstance::compare(RootObject *o)
@@ -7920,6 +7947,12 @@ void TemplateMixin::semantic(Scope *sc)
     {
         Dsymbol *s = (*members)[i];
         s->setScope(sc2);
+    }
+
+    for (size_t i = 0; i < members->dim; i++)
+    {
+        Dsymbol *s = (*members)[i];
+        s->importAll(sc2);
     }
 
     for (size_t i = 0; i < members->dim; i++)

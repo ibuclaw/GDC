@@ -350,7 +350,7 @@ FuncDeclaration::toSymbol()
 	  // Do this even if there is no debug info.  It is needed to make
 	  // sure member functions are not called statically
 	  AggregateDeclaration *agg_decl = isMember2();
-	  tree handle = agg_decl->handle->toCtype();
+	  tree handle = agg_decl->handleType()->toCtype();
 
 	  // If handle is a pointer type, get record type.
 	  if (!agg_decl->isStructDeclaration())

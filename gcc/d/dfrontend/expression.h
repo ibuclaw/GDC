@@ -86,13 +86,13 @@ Expression *valueNoDtor(Expression *e);
 int modifyFieldVar(Loc loc, Scope *sc, VarDeclaration *var, Expression *e1);
 Expression *resolveAliasThis(Scope *sc, Expression *e);
 Expression *callCpCtor(Scope *sc, Expression *e);
-Expression *resolveOpDollar(Scope *sc, ArrayExp *ae);
-Expression *resolveOpDollar(Scope *sc, SliceExp *se);
+Expression *resolveOpDollar(Scope *sc, ArrayExp *ae, Expression **pe0);
+Expression *resolveOpDollar(Scope *sc, SliceExp *se, Expression **pe0);
 Expression *integralPromotions(Expression *e, Scope *sc);
 void discardValue(Expression *e);
 
 int isConst(Expression *e);
-Expression *toDelegate(Expression *e, Scope *sc, Type *t);
+Expression *toDelegate(Expression *e, Scope *sc);
 AggregateDeclaration *isAggregate(Type *t);
 IntRange getIntRange(Expression *e);
 bool isArrayOperand(Expression *e);
@@ -163,6 +163,9 @@ public:
     void deprecation(const char *format, ...);
     virtual int rvalue(bool allowVoid = false);
 
+    // creates a single expression which is effectively (e1, e2)
+    // this new expression does not necessarily need to have valid D source code representation,
+    // for example, it may include declaration expressions
     static Expression *combine(Expression *e1, Expression *e2);
     static Expressions *arraySyntaxCopy(Expressions *exps);
 
@@ -712,6 +715,9 @@ public:
 
 // Declaration of a symbol
 
+// D grammar allows declarations only as statements. However in AST representation
+// it can be part of any expression. This is used, for example, during internal
+// syntax re-writes to inject hidden symbols.
 class DeclarationExp : public Expression
 {
 public:
@@ -1117,6 +1123,19 @@ public:
     elem *toElem(IRState *irs);
 
     static Expression *rewriteOpAssign(BinExp *exp);
+    void accept(Visitor *v) { v->visit(this); }
+};
+
+class IntervalExp : public Expression
+{
+public:
+    Expression *lwr;
+    Expression *upr;
+
+    IntervalExp(Loc loc, Expression *lwr, Expression *upr);
+    Expression *syntaxCopy();
+    Expression *semantic(Scope *sc);
+
     void accept(Visitor *v) { v->visit(this); }
 };
 

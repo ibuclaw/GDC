@@ -229,7 +229,7 @@ bool isNeedThisScope(Scope *sc, Declaration *d)
         }
         if (FuncDeclaration *f = s->isFuncDeclaration())
         {
-            if (f->isFuncLiteralDeclaration())
+            if (f->isFuncLiteralDeclaration() && f->isNested())
                 continue;
             if (f->isMember2())
                 break;
@@ -1499,7 +1499,9 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
                                 if (tret->toBasetype()->ty == Tvoid ||
                                     a->implicitConvTo(tret))
                                 {
-                                    a = toDelegate(a, sc, tret);
+                                    a = a->implicitCastTo(sc, tret);
+                                    a = a->optimize(WANTvalue);
+                                    a = toDelegate(a, sc);
                                 }
                             }
 
@@ -1607,27 +1609,26 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
         Expression *arg = (*arguments)[i];
         assert(arg);
 
+        if (arg->op == TOKtype)
+        {
+            arg->error("cannot pass type %s as function argument", arg->toChars());
+            arg = new ErrorExp();
+            goto L3;
+        }
+
         if (i < nparams)
         {
             Parameter *p = Parameter::getNth(tf->parameters, i);
 
             if (!(p->storageClass & STClazy && p->type->ty == Tvoid))
             {
+                Type *tprm = p->type;
                 if (p->type->hasWild())
-                {
-                    arg = arg->implicitCastTo(sc, p->type->substWildTo(wildmatch));
-                    arg = arg->optimize(WANTvalue, (p->storageClass & STCref) != 0);
-                }
-                else if (!p->type->equals(arg->type))
+                    tprm = p->type->substWildTo(wildmatch);
+                if (!tprm->equals(arg->type))
                 {
                     //printf("arg->type = %s, p->type = %s\n", arg->type->toChars(), p->type->toChars());
-                    if (arg->op == TOKtype)
-                    {   arg->error("cannot pass type %s as function argument", arg->toChars());
-                        arg = new ErrorExp();
-                        goto L3;
-                    }
-                    else
-                        arg = arg->implicitCastTo(sc, p->type);
+                    arg = arg->implicitCastTo(sc, tprm);
                     arg = arg->optimize(WANTvalue, (p->storageClass & STCref) != 0);
                 }
             }
@@ -1647,7 +1648,7 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
             else if (p->storageClass & STClazy)
             {
                 // Convert lazy argument to a delegate
-                arg = toDelegate(arg, sc, p->type);
+                arg = toDelegate(arg, sc);
             }
             else
             {
@@ -9672,7 +9673,10 @@ Lagain:
         if (search_function(ad, Id::slice))
         {
             // Rewrite as e1.slice(lwr, upr)
-            Expression *e0 = resolveOpDollar(sc, this);
+            Expression *e0 = NULL;
+            Expression *ex = resolveOpDollar(sc, this, &e0);
+            if (ex->op == TOKerror)
+                return ex;
             Expressions *a = new Expressions();
             assert(!lwr || upr);
             if (lwr)
@@ -9682,9 +9686,8 @@ Lagain:
             }
             e = new DotIdExp(loc, e1, Id::slice);
             e = new CallExp(loc, e, a);
-            e = combine(e0, e);
             e = e->semantic(sc);
-            return e;
+            return Expression::combine(e0, e);
         }
         if (ad->aliasthis && e1->type != att1)
         {
@@ -9946,6 +9949,50 @@ Expression *ArrayLengthExp::rewriteOpAssign(BinExp *exp)
     return e;
 }
 
+/*********************** IntervalExp ********************************/
+
+// Mainly just a placeholder
+
+IntervalExp::IntervalExp(Loc loc, Expression *lwr, Expression *upr)
+        : Expression(loc, TOKinterval, sizeof(IntervalExp))
+{
+    this->lwr = lwr;
+    this->upr = upr;
+}
+
+Expression *IntervalExp::syntaxCopy()
+{
+    return new IntervalExp(loc, lwr->syntaxCopy(), upr->syntaxCopy());
+}
+
+Expression *IntervalExp::semantic(Scope *sc)
+{
+#if LOGSEMANTIC
+    printf("IntervalExp::semantic('%s')\n", toChars());
+#endif
+    if (type)
+        return this;
+
+    Expression *le = lwr;
+    le = le->semantic(sc);
+    le = resolveProperties(sc, le);
+
+    Expression *ue = upr;
+    ue = ue->semantic(sc);
+    ue = resolveProperties(sc, ue);
+
+    if (le->op == TOKerror)
+        return le;
+    if (ue->op == TOKerror)
+        return ue;
+
+    lwr = le;
+    upr = ue;
+
+    type = Type::tvoid;
+    return this;
+}
+
 /*********************** ArrayExp *************************************/
 
 // e1 [ i1, i2, i3, ... ]
@@ -9967,9 +10014,6 @@ Expression *ArrayExp::syntaxCopy()
 
 Expression *ArrayExp::semantic(Scope *sc)
 {
-    Expression *e;
-    Type *t1;
-
 #if LOGSEMANTIC
     printf("ArrayExp::semantic('%s')\n", toChars());
 #endif
@@ -9979,25 +10023,37 @@ Expression *ArrayExp::semantic(Scope *sc)
     if (e1->op == TOKerror)
         return e1;
 
-    t1 = e1->type->toBasetype();
+    Type *t1 = e1->type->toBasetype();
     if (t1->ty != Tclass && t1->ty != Tstruct)
-    {   // Convert to IndexExp
-        if (arguments->dim != 1)
-        {   error("only one index allowed to index %s", t1->toChars());
-            goto Lerr;
+    {
+        // Convert to IndexExp
+        Expression *e;
+        if (arguments->dim == 0)
+        {
+            e = new SliceExp(loc, e1, NULL, NULL);
         }
-        e = new IndexExp(loc, e1, (*arguments)[0]);
+        else if (arguments->dim == 1 && (*arguments)[0]->op == TOKinterval)
+        {
+            IntervalExp *ie = (IntervalExp *)(*arguments)[0];
+            e = new SliceExp(loc, e1, ie->lwr, ie->upr);
+        }
+        else if (arguments->dim == 1)
+        {
+            e = new IndexExp(loc, e1, (*arguments)[0]);
+        }
+        else
+        {
+            error("only one index allowed to index %s", t1->toChars());
+            return new ErrorExp();
+        }
         return e->semantic(sc);
     }
 
-    e = op_overload(sc);
-    if (!e)
-    {   error("no [] operator overload for type %s", e1->type->toChars());
-        goto Lerr;
-    }
-    return e;
+    Expression *e = op_overload(sc);
+    if (e)
+        return e;
 
-Lerr:
+    error("no [] operator overload for type %s", e1->type->toChars());
     return new ErrorExp();
 }
 
@@ -10492,42 +10548,70 @@ Expression *AssignExp::semantic(Scope *sc)
         ArrayExp *ae = (ArrayExp *)e1;
         ae->e1 = ae->e1->semantic(sc);
         ae->e1 = resolveProperties(sc, ae->e1);
-        Expression *ae1old = ae->e1;
 
         Type *t1 = ae->e1->type->toBasetype();
         AggregateDeclaration *ad = isAggregate(t1);
         if (ad)
         {
-          L1:
+            Expression *e0 = NULL;
+
             // Rewrite (a[i] = value) to (a.opIndexAssign(value, i))
             if (search_function(ad, Id::indexass))
             {
                 // Deal with $
-                Expression *e0 = resolveOpDollar(sc, ae);
+                Expression *ex = resolveOpDollar(sc, ae, &e0);
+                if (!ex)
+                    goto Lfallback;
+                if (ex->op == TOKerror)
+                    return ex;
+
                 Expressions *a = (Expressions *)ae->arguments->copy();
                 a->insert(0, e2);
 
                 Expression *e = new DotIdExp(loc, ae->e1, Id::indexass);
                 e = new CallExp(loc, e, a);
-                e = combine(e0, e);
-                e = e->semantic(sc);
-                return e;
+                if (ae->arguments->dim == 0)
+                    e = e->trySemantic(sc);
+                else
+                    e = e->semantic(sc);
+                if (!e)
+                    goto Lfallback;
+                return Expression::combine(e0, e);
+            }
+
+            // No opIndexAssign found yet, but there might be an alias this to try.
+            if (ad->aliasthis && t1 != ae->att1)
+            {
+                ArrayExp *aex = (ArrayExp *)ae->copy();
+                if (!aex->att1 && t1->checkAliasThisRec())
+                    aex->att1 = t1;
+                aex->e1 = new DotIdExp(loc, ae->e1, ad->aliasthis->ident);
+                this->e1 = aex;
+                Expression *ex = this->trySemantic(sc);
+                if (ex)
+                    return ex;
+                this->e1 = ae;  // restore
+            }
+
+        Lfallback:
+            if (ae->arguments->dim == 0)
+            {
+                // a[] = e2
+                SliceExp *se = new SliceExp(ae->loc, ae->e1, NULL, NULL);
+                se->att1 = ae->att1;
+                this->e1 = se;
+                return Expression::combine(e0, this->semantic(sc));
+            }
+            if (ae->arguments->dim == 1 && (*ae->arguments)[0]->op == TOKinterval)
+            {
+                // a[lwr..upr] = e2
+                IntervalExp *ie = (IntervalExp *)(*ae->arguments)[0];
+                SliceExp *se = new SliceExp(ae->loc, ae->e1, ie->lwr, ie->upr);
+                se->att1 = ae->att1;
+                this->e1 = se;
+                return Expression::combine(e0, this->semantic(sc));
             }
         }
-
-        // No opIndexAssign found yet, but there might be an alias this to try.
-        if (ad && ad->aliasthis && t1 != att1)
-        {
-            if (!att1 && t1->checkAliasThisRec())
-                att1 = t1;
-            ae->e1 = resolveAliasThis(sc, ae->e1);
-            t1 = ae->e1->type->toBasetype();
-            ad = isAggregate(t1);
-            if (ad)
-                goto L1;
-        }
-
-        ae->e1 = ae1old;    // restore
     }
     /* Look for operator overloading of a[i..j]=value.
      * Do it before semantic() otherwise the a[i..j] will have been
@@ -10538,17 +10622,18 @@ Expression *AssignExp::semantic(Scope *sc)
         SliceExp *ae = (SliceExp *)e1;
         ae->e1 = ae->e1->semantic(sc);
         ae->e1 = resolveProperties(sc, ae->e1);
-        Expression *ae1old = ae->e1;
 
         Type *t1 = ae->e1->type->toBasetype();
         AggregateDeclaration *ad = isAggregate(t1);
         if (ad)
         {
-          L2:
             // Rewrite (a[i..j] = value) to (a.opSliceAssign(value, i, j))
             if (search_function(ad, Id::sliceass))
             {
-                Expression *e0 = resolveOpDollar(sc, ae);
+                Expression *e0 = NULL;
+                Expression *ex = resolveOpDollar(sc, ae, &e0);
+                if (ex->op == TOKerror)
+                    return ex;
                 Expressions *a = new Expressions();
                 a->push(e2);
                 assert(!ae->lwr || ae->upr);
@@ -10559,25 +10644,24 @@ Expression *AssignExp::semantic(Scope *sc)
                 }
                 Expression *e = new DotIdExp(loc, ae->e1, Id::sliceass);
                 e = new CallExp(loc, e, a);
-                e = combine(e0, e);
                 e = e->semantic(sc);
-                return e;
+                return Expression::combine(e0, e);
+            }
+
+            // No opSliceAssign found yet, but there might be an alias this to try.
+            if (ad->aliasthis && t1 != ae->att1)
+            {
+                SliceExp *aex = (SliceExp *)ae->copy();
+                if (!aex->att1 && t1->checkAliasThisRec())
+                    aex->att1 = t1;
+                aex->e1 = new DotIdExp(loc, ae->e1, ad->aliasthis->ident);
+                this->e1 = aex;
+                Expression *ex = this->trySemantic(sc);
+                if (ex)
+                    return ex;
+                this->e1 = ae;  // restore
             }
         }
-
-        // No opSliceAssign found yet, but there might be an alias this to try.
-        if (ad && ad->aliasthis && t1 != att1)
-        {
-            if (!att1 && t1->checkAliasThisRec())
-                att1 = t1;
-            ae->e1 = resolveAliasThis(sc, ae->e1);
-            t1 = ae->e1->type->toBasetype();
-            ad = isAggregate(t1);
-            if (ad)
-                goto L2;
-        }
-
-        ae->e1 = ae1old;    // restore
     }
 
     /* With UFCS, e.f = value
@@ -11095,7 +11179,7 @@ Ltupleassign:
             if (!e2->implicitConvTo(e1->type))
             {
                 /* Internal handling for the default initialization
-                 * of multi-dimentional static array:
+                 * of multi-dimensional static array:
                  *  T[2][3] sa; // = T.init; if T is zero-init
                  */
                 // Treat e1 as one large array
@@ -13499,14 +13583,32 @@ Expression *extractOpDollarSideEffect(Scope *sc, UnaExp *ue)
  * if '$' was used.
  */
 
-Expression *resolveOpDollar(Scope *sc, ArrayExp *ae)
+Expression *resolveOpDollar(Scope *sc, ArrayExp *ae, Expression **pe0)
 {
     assert(!ae->lengthVar);
 
-    Expression *e0 = extractOpDollarSideEffect(sc, ae);
+    *pe0 = NULL;
+
+    AggregateDeclaration *ad = isAggregate(ae->e1->type);
+    Dsymbol *slice = search_function(ad, Id::slice);
+    //printf("slice = %s %s\n", slice->kind(), slice->toChars());
 
     for (size_t i = 0; i < ae->arguments->dim; i++)
     {
+        if (i == 0)
+            *pe0 = extractOpDollarSideEffect(sc, ae);
+
+        Expression *e = (*ae->arguments)[i];
+        if (e->op == TOKinterval && !(slice && slice->isTemplateDeclaration()))
+        {
+        Lfallback:
+            if (ae->arguments->dim == 1)
+                return NULL;
+            ae->error("multi-dimensional slicing requires template opSlice");
+            return new ErrorExp();
+        }
+        //printf("[%d] e = %s\n", i, e->toChars());
+
         // Create scope for '$' variable for this dimension
         ArrayScopeSymbol *sym = new ArrayScopeSymbol(sc, ae);
         sym->loc = ae->loc;
@@ -13515,23 +13617,60 @@ Expression *resolveOpDollar(Scope *sc, ArrayExp *ae)
         ae->lengthVar = NULL;       // Create it only if required
         ae->currentDimension = i;   // Dimension for $, if required
 
-        Expression *e = (*ae->arguments)[i];
         e = e->semantic(sc);
         e = resolveProperties(sc, e);
-        if (!e->type)
-            ae->error("%s has no value", e->toChars());
+
         if (ae->lengthVar && sc->func)
         {
             // If $ was used, declare it now
             Expression *de = new DeclarationExp(ae->loc, ae->lengthVar);
-            e = new CommaExp(Loc(), de, e);
+            de = de->semantic(sc);
+            *pe0 = Expression::combine(*pe0, de);
+        }
+        sc = sc->pop();
+
+        if (e->op == TOKinterval)
+        {
+            IntervalExp *ie = (IntervalExp *)e;
+
+            Objects *tiargs = new Objects();
+            Expression *edim = new IntegerExp(ae->loc, i, Type::tsize_t);
+            edim = edim->semantic(sc);
+            tiargs->push(edim);
+
+            Expressions *fargs = new Expressions();
+            fargs->push(ie->lwr);
+            fargs->push(ie->upr);
+
+            unsigned xerrors = global.startGagging();
+            unsigned oldspec = global.speculativeGag;
+            global.speculativeGag = global.gag;
+            sc = sc->push();
+            sc->speculative = true;
+            FuncDeclaration *fslice = resolveFuncCall(ae->loc, sc, slice, tiargs, ae->e1->type, fargs, 1);
+            sc = sc->pop();
+            global.speculativeGag = oldspec;
+            global.endGagging(xerrors);
+            if (!fslice)
+                goto Lfallback;
+
+            e = new DotTemplateInstanceExp(ae->loc, ae->e1, slice->ident, tiargs);
+            e = new CallExp(ae->loc, e, fargs);
             e = e->semantic(sc);
         }
+
+        if (!e->type)
+        {
+            ae->error("%s has no value", e->toChars());
+            e = new ErrorExp();
+        }
+        if (e->op == TOKerror)
+            return e;
+
         (*ae->arguments)[i] = e;
-        sc = sc->pop();
     }
 
-    return e0;
+    return ae;
 }
 
 /**************************************
@@ -13539,14 +13678,15 @@ Expression *resolveOpDollar(Scope *sc, ArrayExp *ae)
  * if '$' was used.
  */
 
-Expression *resolveOpDollar(Scope *sc, SliceExp *se)
+Expression *resolveOpDollar(Scope *sc, SliceExp *se, Expression **pe0)
 {
     assert(!se->lengthVar);
     assert(!se->lwr || se->upr);
 
-    if (!se->lwr) return NULL;
+    if (!se->lwr)
+        return se;
 
-    Expression *e0 = extractOpDollarSideEffect(sc, se);
+    *pe0 = extractOpDollarSideEffect(sc, se);
 
     // create scope for '$'
     ArrayScopeSymbol *sym = new ArrayScopeSymbol(sc, se);
@@ -13560,7 +13700,10 @@ Expression *resolveOpDollar(Scope *sc, SliceExp *se)
         e = e->semantic(sc);
         e = resolveProperties(sc, e);
         if (!e->type)
+        {
             se->error("%s has no value", e->toChars());
+            return new ErrorExp();
+        }
         (i == 0 ? se->lwr : se->upr) = e;
     }
 
@@ -13568,12 +13711,12 @@ Expression *resolveOpDollar(Scope *sc, SliceExp *se)
     {
         // If $ was used, declare it now
         Expression *de = new DeclarationExp(se->loc, se->lengthVar);
-        se->lwr = new CommaExp(Loc(), de, se->lwr);
-        se->lwr = se->lwr->semantic(sc);
+        de = de->semantic(sc);
+        *pe0 = Expression::combine(*pe0, de);
     }
     sc = sc->pop();
 
-    return e0;
+    return se;
 }
 
 Expression *BinExp::reorderSettingAAElem(Scope *sc)

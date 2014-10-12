@@ -1586,6 +1586,17 @@ char *Type::toChars()
     return buf.extractString();
 }
 
+char *Type::toPrettyChars(bool QualifyTypes)
+{
+    OutBuffer buf;
+    buf.reserve(16);
+    HdrGenState hgs;
+    hgs.fullQualification = QualifyTypes;
+
+    toCBuffer(&buf, NULL, &hgs);
+    return buf.extractString();
+}
+
 void Type::toCBuffer(OutBuffer *buf, Identifier *ident, HdrGenState *hgs)
 {
     ::toCBuffer(this, buf, ident, hgs);
@@ -2101,6 +2112,7 @@ Type *TypeFunction::substWildTo(unsigned)
     t->isref = isref;
     t->iswild = 0;
     t->trust = trust;
+    t->gcuse = gcuse;
     t->fargs = fargs;
     return t->merge();
 }
@@ -5162,6 +5174,7 @@ TypeFunction::TypeFunction(Parameters *parameters, Type *treturn, int varargs, L
         this->isref = true;
 
     this->trust = TRUSTdefault;
+    this->gcuse = GCUSEdefault;
     if (stc & STCsafe)
         this->trust = TRUSTsafe;
     if (stc & STCsystem)
@@ -5192,6 +5205,7 @@ Type *TypeFunction::syntaxCopy()
     t->isref = isref;
     t->iswild = iswild;
     t->trust = trust;
+    t->gcuse = gcuse;
     t->fargs = fargs;
     return t;
 }
@@ -6173,6 +6187,7 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
         tf->isproperty = t->isproperty;
         tf->isref = t->isref;
         tf->trust = t->trust;
+        tf->gcuse = t->gcuse;
         tf->iswild = t->iswild;
 
         if (stc & STCpure)
@@ -6415,6 +6430,14 @@ void TypeQualified::resolveHelper(Loc loc, Scope *sc,
             //printf("\t3: s = %p %s %s, sm = %p\n", s, s->kind(), s->toChars(), sm);
             if (intypeid && !t && sm && sm->needThis())
                 goto L3;
+            if (VarDeclaration *v = s->isVarDeclaration())
+            {
+                if (v->storage_class & (STCconst | STCimmutable | STCmanifest) ||
+                    v->type->isConst() || v->type->isImmutable())
+                {
+                    goto L3;
+                }
+            }
             if (!sm)
             {
                 if (!t)
@@ -7422,6 +7445,7 @@ Expression *TypeEnum::defaultInit(Loc loc)
     // Initialize to first member of enum
     Expression *e = sym->getDefaultValue(loc);
     e = e->copy();
+    e->loc = loc;
     e->type = this;     // to deal with const, immutable, etc., variants
     return e;
 }

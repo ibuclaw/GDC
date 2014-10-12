@@ -112,7 +112,7 @@ D_DMD_OBJS := \
     d/hdrgen.dmd.o d/identifier.dmd.o d/imphint.dmd.o d/import.dmd.o \
     d/init.dmd.o d/interpret.dmd.o d/intrange.dmd.o \
     d/json.dmd.o d/lexer.dmd.o d/macro.dmd.o d/mangle.dmd.o \
-    d/mtype.dmd.o d/module.dmd.o d/object.dmd.o d/opover.dmd.o \
+    d/mtype.dmd.o d/module.dmd.o d/nogc.dmd.o d/object.dmd.o d/opover.dmd.o \
     d/optimize.dmd.o d/outbuffer.dmd.o d/parse.dmd.o d/rmem.dmd.o \
     d/sapply.dmd.o d/scope.dmd.o d/sideeffect.dmd.o \
     d/speller.dmd.o d/statement.dmd.o d/staticassert.dmd.o \

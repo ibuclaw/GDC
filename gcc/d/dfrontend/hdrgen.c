@@ -996,18 +996,18 @@ public:
     {
         TemplateInstance *ti = t->sym->parent->isTemplateInstance();
         if (ti && ti->toAlias() == t->sym)
-            buf->writestring(ti->toChars());
+            buf->writestring((hgs->fullQualification) ? ti->toPrettyChars() : ti->toChars());
         else
-            buf->writestring(t->sym->toChars());
+            buf->writestring((hgs->fullQualification) ? t->sym->toPrettyChars() : t->sym->toChars());
     }
 
     void visit(TypeClass *t)
     {
         TemplateInstance *ti = t->sym->parent->isTemplateInstance();
         if (ti && ti->toAlias() == t->sym)
-            buf->writestring(ti->toChars());
+            buf->writestring((hgs->fullQualification) ? ti->toPrettyChars() : ti->toChars());
         else
-            buf->writestring(t->sym->toChars());
+            buf->writestring((hgs->fullQualification) ? t->sym->toPrettyChars() : t->sym->toChars());
     }
 
     void visit(TypeTuple *t)
@@ -1683,6 +1683,13 @@ public:
     {
         expToCBuffer(buf, hgs, e->e1, PREC_primary);
         buf->writestring(".length");
+    }
+
+    void visit(IntervalExp *e)
+    {
+        expToCBuffer(buf, hgs, e->lwr, PREC_assign);
+        buf->writestring("..");
+        expToCBuffer(buf, hgs, e->upr, PREC_assign);
     }
 
     void visit(ArrayExp *e)
