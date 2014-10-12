@@ -2128,12 +2128,19 @@ NewExp::toElem (IRState *irs)
 
       // Elem size is unknown.
       if (tpointer->next->size() == 0)
-	return d_convert (type->toCtype(), integer_zero_node);
+	return d_convert(type->toCtype(), integer_zero_node);
 
-      libcall = tpointer->next->isZeroInit (loc) ? LIBCALL_NEWITEMT : LIBCALL_NEWITEMIT;
+      libcall = tpointer->next->isZeroInit(loc) ? LIBCALL_NEWITEMT : LIBCALL_NEWITEMIT;
 
       tree arg = type->getTypeInfo(NULL)->toElem(irs);
-      result = build_libcall (libcall, 1, &arg, tb->toCtype());
+      result = build_libcall(libcall, 1, &arg, tb->toCtype());
+
+      if (arguments && arguments->dim == 1)
+	{
+	  result = make_temp(result);
+	  tree init = modify_expr(build_deref(result), (*arguments)[0]->toElem(irs));
+	  result = compound_expr(init, result);
+	}
     }
   else
     gcc_unreachable();

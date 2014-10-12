@@ -2986,6 +2986,8 @@ Expression *IdentifierExp::semantic(Scope *sc)
 #if LOGSEMANTIC
     printf("IdentifierExp::semantic('%s')\n", ident->toChars());
 #endif
+    if (type)   // This is used as the dummy expression
+        return this;
 
     Dsymbol *scopesym;
     Dsymbol *s = sc->search(loc, ident, &scopesym);
@@ -5025,8 +5027,18 @@ Lagain:
     }
     else if (tb->isscalar())
     {
-        if (nargs)
-        {   error("no constructor for %s", type->toChars());
+        if (!nargs)
+        {
+        }
+        else if (nargs == 1)
+        {
+            Expression *e = (*arguments)[0];
+            e = e->implicitCastTo(sc, tb);
+            (*arguments)[0] = e;
+        }
+        else
+        {
+            error("more than one argument for construction of %s", type->toChars());
             goto Lerr;
         }
 
@@ -8147,6 +8159,30 @@ Lagain:
             e = e->semantic(sc);
             return e;
         }
+        else if (e1->op == TOKtype && t1->isscalar())
+        {
+            if (arrayExpressionSemantic(arguments, sc))
+                return new ErrorExp();
+            preFunctionParameters(loc, sc, arguments);
+            Expression *e;
+            if (!arguments || arguments->dim == 0)
+            {
+                e = t1->defaultInitLiteral(loc);
+            }
+            else if (arguments->dim == 1)
+            {
+                e = (*arguments)[0];
+                e = e->implicitCastTo(sc, t1);
+                e = new CastExp(loc, e, t1);
+            }
+            else
+            {
+                error("more than one argument for construction of %s", t1->toChars());
+                e = new ErrorExp();
+            }
+            e = e->semantic(sc);
+            return e;
+        }
     }
 
     if (e1->op == TOKdotvar && t1->ty == Tfunction ||
@@ -11188,7 +11224,14 @@ Ltupleassign:
              *  C[2] ca;  D[] da;
              *  ca[] = da;
              */
-            e2 = e2->castTo(sc, e1->type->constOf());
+            if (isArrayOpValid(e2))
+            {
+                // Don't add CastExp to keep AST for array operations
+                e2 = e2->copy();
+                e2->type = e1->type->constOf();
+            }
+            else
+                e2 = e2->castTo(sc, e1->type->constOf());
         }
         else
             e2 = e2->implicitCastTo(sc, e1->type);

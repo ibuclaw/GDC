@@ -808,8 +808,8 @@ public:
 class StaticCtorDeclaration : public FuncDeclaration
 {
 public:
-    StaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc);
-    StaticCtorDeclaration(Loc loc, Loc endloc, const char *name, StorageClass stc);
+    StaticCtorDeclaration(Loc loc, Loc endloc);
+    StaticCtorDeclaration(Loc loc, Loc endloc, const char *name);
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
     AggregateDeclaration *isThis();
@@ -826,7 +826,7 @@ public:
 class SharedStaticCtorDeclaration : public StaticCtorDeclaration
 {
 public:
-    SharedStaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc);
+    SharedStaticCtorDeclaration(Loc loc, Loc endloc);
     Dsymbol *syntaxCopy(Dsymbol *);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 

@@ -1,11 +1,11 @@
 
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved, written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/root/filename.c
+ */
 
 #include "filename.h"
 
@@ -622,10 +622,7 @@ int FileName::ensurePathExists(const char *path)
  */
 const char *FileName::canonicalName(const char *name)
 {
-#if __linux__
-    // Lovely glibc extension to do it for us
-    return canonicalize_file_name(name);
-#elif POSIX
+#if POSIX
   #if _POSIX_VERSION >= 200809L || defined (__linux__)
     // NULL destination buffer is allowed and preferred
     return realpath(name, NULL);
@@ -652,11 +649,11 @@ const char *FileName::canonicalName(const char *name)
     /* Apparently, there is no good way to do this on Windows.
      * GetFullPathName isn't it, but use it anyway.
      */
-    DWORD result = GetFullPathName(name, 0, NULL, NULL);
+    DWORD result = GetFullPathNameA(name, 0, NULL, NULL);
     if (result)
     {
         char *buf = (char *)malloc(result);
-        result = GetFullPathName(name, result, buf, NULL);
+        result = GetFullPathNameA(name, result, buf, NULL);
         if (result == 0)
         {
             ::free(buf);

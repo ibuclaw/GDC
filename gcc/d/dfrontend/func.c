@@ -4485,22 +4485,22 @@ void DtorDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
 /********************************* StaticCtorDeclaration ****************************/
 
-StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc)
+StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc)
     : FuncDeclaration(loc, endloc,
-      Identifier::generateId("_staticCtor"), STCstatic | stc, NULL)
+      Identifier::generateId("_staticCtor"), STCstatic, NULL)
 {
 }
 
-StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, const char *name, StorageClass stc)
+StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, const char *name)
     : FuncDeclaration(loc, endloc,
-      Identifier::generateId(name), STCstatic | stc, NULL)
+      Identifier::generateId(name), STCstatic, NULL)
 {
 }
 
 Dsymbol *StaticCtorDeclaration::syntaxCopy(Dsymbol *s)
 {
     assert(!s);
-    StaticCtorDeclaration *scd = new StaticCtorDeclaration(loc, endloc, storage_class);
+    StaticCtorDeclaration *scd = new StaticCtorDeclaration(loc, endloc);
     return FuncDeclaration::syntaxCopy(scd);
 }
 
@@ -4515,33 +4515,8 @@ void StaticCtorDeclaration::semantic(Scope *sc)
         scope = NULL;
     }
 
-    if (storage_class & STC_TYPECTOR)
-    {
-        unsigned char mod = 0;
-        if (storage_class & STCshared && !isSharedStaticCtorDeclaration())
-        {
-            ::error(loc, "to create a shared static constructor, move 'shared' in front of 'static'");
-            storage_class &= ~STCshared;
-        }
-        if (storage_class & STCimmutable)
-            mod = MODimmutable;
-        else
-        {
-            if (storage_class & STCconst)
-                mod |= MODconst;
-            else if (storage_class & STCwild)
-                mod |= MODwild;
-            if (storage_class & STCshared)
-                mod |= MODshared;
-        }
-        if (mod)
-            ::error(loc, "%sstatic constructors cannot be '%s'",
-                isSharedStaticCtorDeclaration() ? "shared " : "",
-                MODtoChars(mod));
-        storage_class &= ~STC_TYPECTOR; // remove qualifiers
-    }
     if (!type)
-        type = new TypeFunction(NULL, Type::tvoid, false, LINKd, storage_class);
+        type = new TypeFunction(NULL, Type::tvoid, false, LINKd);
 
     /* If the static ctor appears within a template instantiation,
      * it could get called multiple times by the module constructors
@@ -4622,15 +4597,15 @@ void StaticCtorDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
 /********************************* SharedStaticCtorDeclaration ****************************/
 
-SharedStaticCtorDeclaration::SharedStaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc)
-    : StaticCtorDeclaration(loc, endloc, "_sharedStaticCtor", stc)
+SharedStaticCtorDeclaration::SharedStaticCtorDeclaration(Loc loc, Loc endloc)
+    : StaticCtorDeclaration(loc, endloc, "_sharedStaticCtor")
 {
 }
 
 Dsymbol *SharedStaticCtorDeclaration::syntaxCopy(Dsymbol *s)
 {
     assert(!s);
-    SharedStaticCtorDeclaration *scd = new SharedStaticCtorDeclaration(loc, endloc, storage_class);
+    SharedStaticCtorDeclaration *scd = new SharedStaticCtorDeclaration(loc, endloc);
     return FuncDeclaration::syntaxCopy(scd);
 }
 

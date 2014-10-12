@@ -1051,16 +1051,17 @@ MATCH TemplateDeclaration::leastAsSpecialized(Scope *sc, TemplateDeclaration *td
     // Set type arguments to dummy template instance to be types
     // generated from the parameters to this template declaration
     ti.tiargs = new Objects();
-    ti.tiargs->setDim(parameters->dim);
-    for (size_t i = 0; i < ti.tiargs->dim; i++)
+    ti.tiargs->reserve(parameters->dim);
+    for (size_t i = 0; i < parameters->dim; i++)
     {
         TemplateParameter *tp = (*parameters)[i];
-
+        if (tp->dependent)
+            break;
         RootObject *p = (RootObject *)tp->dummyArg();
-        if (p)
-            (*ti.tiargs)[i] = p;
-        else
-            ti.tiargs->setDim(i);
+        if (!p)
+            break;
+
+        ti.tiargs->push(p);
     }
 
     // Temporary Array to hold deduced types
@@ -1074,7 +1075,8 @@ MATCH TemplateDeclaration::leastAsSpecialized(Scope *sc, TemplateDeclaration *td
         /* A non-variadic template is more specialized than a
          * variadic one.
          */
-        if (isVariadic() && !td2->isVariadic())
+        TemplateTupleParameter *tp = isVariadic();
+        if (tp && !tp->dependent && !td2->isVariadic())
             goto L1;
 
 #if LOG_LEASTAS
@@ -1518,33 +1520,6 @@ Lretry:
 #endif
             Type *argtype = farg->type;
 
-            /* Allow expressions that have CT-known boundaries and type [] to match with [dim]
-             */
-            Type *taai;
-            if ( argtype->ty == Tarray &&
-                (prmtype->ty == Tsarray ||
-                 prmtype->ty == Taarray && (taai = ((TypeAArray *)prmtype)->index)->ty == Tident &&
-                                           ((TypeIdentifier *)taai)->idents.dim == 0))
-            {
-                if (farg->op == TOKstring)
-                {
-                    StringExp *se = (StringExp *)farg;
-                    argtype = argtype->nextOf()->sarrayOf(se->len);
-                }
-                else if (farg->op == TOKslice)
-                {
-                    SliceExp *se = (SliceExp *)farg;
-                    Type *tsa = toStaticArrayType(se);
-                    if (tsa)
-                        argtype = tsa;
-                }
-                else if (farg->op == TOKarrayliteral)
-                {
-                    ArrayLiteralExp *ae = (ArrayLiteralExp *)farg;
-                    argtype = argtype->nextOf()->sarrayOf(ae->elements->dim);
-                }
-            }
-
             /* Allow implicit function literals to delegate conversion
              */
             if (farg->op == TOKfunction)
@@ -1586,13 +1561,18 @@ Lretry:
                      */
                     argtype = at->addMod(prmtype->mod);
                 }
+                if (!farg->type->equals(argtype))
+                {
+                    farg = farg->copy();
+                    farg->type = argtype;
+                }
             }
 
             if (fvarargs == 2 && parami + 1 == nfparams && argi + 1 < nfargs)
                 goto Lvarargs;
 
             unsigned wm = 0;
-            MATCH m = deduceType(argtype, paramscope, prmtype, parameters, &dedtypes, &wm);
+            MATCH m = deduceType(farg, paramscope, prmtype, parameters, &dedtypes, &wm);
             //printf("\tdeduceType m = %d\n", m);
             //printf("\twildmatch = x%x m = %d\n", wildmatch, m);
             wildmatch |= wm;
@@ -1644,10 +1624,8 @@ Lretry:
             {
                 if (!farg->isLvalue())
                 {
-                    if (farg->op == TOKstring && argtype->ty == Tsarray)
-                    {
-                    }
-                    else if (farg->op == TOKslice && argtype->ty == Tsarray)
+                    if ((farg->op == TOKstring || farg->op == TOKslice) &&
+                        (prmtype->ty == Tsarray || prmtype->ty == Taarray))
                     {
                         // Allow conversion from T[lwr .. upr] to ref T[upr-lwr]
                     }
@@ -1808,6 +1786,12 @@ Lretry:
 
 Lmatch:
 
+    for (size_t i = 0; i < dedtypes.dim; i++)
+    {
+        Type *at = isType(dedtypes[i]);
+        if (at && at->ty == Ttypeof)
+            dedtypes[i] = ((TypeTypeof *)at)->exp->type;    // 'unbox'
+    }
     for (size_t i = ntargs; i < dedargs->dim; i++)
     {
         TemplateParameter *tparam = (*parameters)[i];
@@ -3220,7 +3204,7 @@ MATCH deduceTypeHelper(Type *t, Type **at, Type *tparam)
  *      dedtypes = [ int ]      // Array of Expression/Type's
  */
 
-MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameters,
+MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *parameters,
         Objects *dedtypes, unsigned *wm)
 {
     class DeduceType : public Visitor
@@ -3343,6 +3327,14 @@ MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameter
                     goto Lnomatch;
                 Type *tt;
                 Type *at = (Type *)(*dedtypes)[i];
+
+                if (at && at->ty == Ttypeof)    // type vs expression
+                {
+                    result = ((TypeTypeof *)at)->exp->implicitConvTo(t);
+                    if (result > MATCHnomatch)
+                        (*dedtypes)[i] = t;
+                    return;
+                }
 
                 if (wm && (tparam->mod & MODwild))
                 {
@@ -3758,44 +3750,50 @@ MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameter
                 if (!tp->tempinst->tempdecl)
                 {
                     //printf("tp->tempinst->name = '%s'\n", tp->tempinst->name->toChars());
-                    if (!tp->tempinst->name->equals(t->tempinst->name))
+
+                    /* Handle case of:
+                     *  template Foo(T : sa!(T), alias sa)
+                     */
+                    size_t i = templateIdentifierLookup(tp->tempinst->name, parameters);
+                    if (i == IDX_NOTFOUND)
                     {
-                        /* Handle case of:
-                         *  template Foo(T : sa!(T), alias sa)
+                        /* Didn't find it as a parameter identifier. Try looking
+                         * it up and seeing if is an alias. See Bugzilla 1454
                          */
-                        size_t i = templateIdentifierLookup(tp->tempinst->name, parameters);
-                        if (i == IDX_NOTFOUND)
+                        TypeIdentifier *tid = new TypeIdentifier(tp->loc, tp->tempinst->name);
+                        Type *tx;
+                        Expression *e;
+                        Dsymbol *s;
+                        tid->resolve(tp->loc, sc, &e, &tx, &s);
+                        if (tx)
                         {
-                            /* Didn't find it as a parameter identifier. Try looking
-                             * it up and seeing if is an alias. See Bugzilla 1454
-                             */
-                            TypeIdentifier *tid = new TypeIdentifier(tp->loc, tp->tempinst->name);
-                            Type *tx;
-                            Expression *e;
-                            Dsymbol *s;
-                            tid->resolve(tp->loc, sc, &e, &tx, &s);
-                            if (tx)
-                            {
-                                s = tx->toDsymbol(sc);
-                                if (s)
-                                {
-                                    TemplateInstance *ti = s->parent->isTemplateInstance();
-                                    s = ti ? ti->tempdecl : NULL;
-                                }
-                            }
+                            s = tx->toDsymbol(sc);
                             if (s)
                             {
-                                s = s->toAlias();
-                                TemplateDeclaration *td = s->isTemplateDeclaration();
-                                if (td && td == tempdecl)
-                                    goto L2;
+                                TemplateInstance *ti = s->parent->isTemplateInstance();
+                                s = ti ? ti->tempdecl : NULL;
                             }
-                            goto Lnomatch;
                         }
-                        TemplateParameter *tpx = (*parameters)[i];
-                        if (!tpx->matchArg(sc, tempdecl, i, parameters, dedtypes, NULL))
-                            goto Lnomatch;
+                        if (s)
+                        {
+                            s = s->toAlias();
+                            TemplateDeclaration *td = s->isTemplateDeclaration();
+                            if (td)
+                            {
+                                if (td->overroot)
+                                    td = td->overroot;
+                                for (; td; td = td->overnext)
+                                {
+                                    if (td == tempdecl)
+                                        goto L2;
+                                }
+                            }
+                        }
+                        goto Lnomatch;
                     }
+                    TemplateParameter *tpx = (*parameters)[i];
+                    if (!tpx->matchArg(sc, tempdecl, i, parameters, dedtypes, NULL))
+                        goto Lnomatch;
                 }
                 else if (tempdecl != tp->tempinst->tempdecl)
                     goto Lnomatch;
@@ -4236,10 +4234,210 @@ MATCH deduceType(Type *t, Scope *sc, Type *tparam, TemplateParameters *parameter
             }
             visit((Type *)t);
         }
+
+        void visit(Expression *e)
+        {
+            e->type->accept(this);
+            if (result > MATCHnomatch)
+                return;
+
+            size_t i = templateParameterLookup(tparam, parameters);
+            if (i != IDX_NOTFOUND)
+            {
+                if (Type *at = isType((*dedtypes)[i]))
+                {
+                    if (e->type->implicitConvTo(at))
+                        result = MATCHconvert;
+                }
+            }
+        }
+
+        bool deduceExpType(Expression *e)
+        {
+            size_t i = templateParameterLookup(tparam, parameters);
+            if (i == IDX_NOTFOUND)
+                return false;
+
+            Type *at = (Type *)(*dedtypes)[i];
+            if (!at)                        // expression vs ()
+            {
+                /* Use TypeTypeof as the 'box' to save polymopthism.
+                 *
+                 *  auto foo(T)(T arg);
+                 *  foo(1);
+                 *      // 1: deduceType(oarg='1', tparam='T', ...)
+                 *      //      T <= TypeTypeof(1)
+                 */
+                (*dedtypes)[i] = new TypeTypeof(e->loc, e);
+                result = MATCHexact;        // TODO
+            }
+            else if (at->ty == Ttypeof)     // expression vs expression
+            {
+                /* Calculate common type of passed expressions.
+                 *
+                 *  auto foo(T)(T arg1, T arg2);
+                 *  foo(1, 2L);
+                 *      // 1: deduceType(oarg='1', tparam='T', ...)
+                 *      //      T <= TypeTypeof(1)
+                 *      // 2: deduceType(oarg='1', tparam='T', ...)
+                 *      //      T <= TypeTypeof(idexp ? 1 : 2L)
+                 */
+                Type *t = NULL;
+                static IdentifierExp *idexp = NULL; // dummy condition
+                if (!idexp)
+                {
+                    idexp = new IdentifierExp(Loc(), Id::empty);
+                    idexp->type = Type::tbool;
+                }
+                CondExp *condexp = new CondExp(Loc(), idexp, ((TypeTypeof *)at)->exp, e);
+                Expression *ec = condexp->semantic(sc);
+                if (ec == condexp)
+                {
+                    ((TypeTypeof *)at)->exp = condexp;
+                    result = MATCHexact;    // TODO
+                }
+            }
+            else                            // expression vs type
+            {
+                /* Check the expression is implicitly convertible to the already deduced type.
+                 *
+                 *  auto foo(T)(T arg1, T arg2);
+                 *  short v; foo(v, 1);
+                 *      // 1: deduceType(oarg='v', tparam='T', ...)
+                 *      //      T <= short
+                 *      // 2: deduceType(oarg='1', tparam='T', ...)
+                 *      //      T <= short  (because '1' is implicitly convertible to short)
+                 */
+                result = e->implicitConvTo(at);
+            }
+            return true;
+        }
+
+        void visit(IntegerExp *e)
+        {
+            if (deduceExpType(e))
+                return;
+            visit((Expression *)e);
+        }
+
+        void visit(RealExp *e)
+        {
+            if (deduceExpType(e))
+                return;
+            visit((Expression *)e);
+        }
+
+        void visit(NullExp *e)
+        {
+            if (deduceExpType(e))
+                return;
+            visit((Expression *)e);
+        }
+
+        void visit(StringExp *e)
+        {
+            if (deduceExpType(e))
+                return;
+
+            Type *taai;
+            if (e->type->ty == Tarray &&
+                (tparam->ty == Tsarray ||
+                 tparam->ty == Taarray && (taai = ((TypeAArray *)tparam)->index)->ty == Tident &&
+                                          ((TypeIdentifier *)taai)->idents.dim == 0))
+            {
+                // Consider compile-time known boundaries
+                e->type->nextOf()->sarrayOf(e->len)->accept(this);
+                return;
+            }
+            visit((Expression *)e);
+        }
+
+        void visit(ArrayLiteralExp *e)
+        {
+            if (tparam->ty == Tarray && e->elements && e->elements->dim)
+            {
+                Type *tn = ((TypeDArray *)tparam)->next;
+                result = MATCHexact;
+                for (size_t i = 0; i < e->elements->dim; i++)
+                {
+                    MATCH m = deduceType((*e->elements)[i], sc, tn, parameters, dedtypes, wm);
+                    if (m < result)
+                        result = m;
+                    if (result <= MATCHnomatch)
+                        break;
+                }
+                return;
+            }
+
+            Type *taai;
+            if (e->type->ty == Tarray &&
+                (tparam->ty == Tsarray ||
+                 tparam->ty == Taarray && (taai = ((TypeAArray *)tparam)->index)->ty == Tident &&
+                                          ((TypeIdentifier *)taai)->idents.dim == 0))
+            {
+                // Consider compile-time known boundaries
+                e->type->nextOf()->sarrayOf(e->elements->dim)->accept(this);
+                return;
+            }
+            visit((Expression *)e);
+        }
+
+        void visit(AssocArrayLiteralExp *e)
+        {
+            if (tparam->ty == Taarray && e->keys && e->keys->dim)
+            {
+                TypeAArray *taa = (TypeAArray *)tparam;
+                result = MATCHexact;
+                for (size_t i = 0; i < e->keys->dim; i++)
+                {
+                    MATCH m1 = deduceType((*e->keys)[i], sc, taa->index, parameters, dedtypes, wm);
+                    if (m1 < result)
+                        result = m1;
+                    if (result <= MATCHnomatch)
+                        break;
+                    MATCH m2 = deduceType((*e->values)[i], sc, taa->next, parameters, dedtypes, wm);
+                    if (m2 < result)
+                        result = m2;
+                    if (result <= MATCHnomatch)
+                        break;
+                }
+                return;
+            }
+            visit((Expression *)e);
+        }
+
+        void visit(SliceExp *e)
+        {
+            Type *taai;
+            if (e->type->ty == Tarray &&
+                (tparam->ty == Tsarray ||
+                 tparam->ty == Taarray && (taai = ((TypeAArray *)tparam)->index)->ty == Tident &&
+                                          ((TypeIdentifier *)taai)->idents.dim == 0))
+            {
+                // Consider compile-time known boundaries
+                if (Type *tsa = toStaticArrayType(e))
+                {
+                    tsa->accept(this);
+                    return;
+                }
+            }
+            visit((Expression *)e);
+        }
+
+        void visit(CommaExp *e)
+        {
+            ((CommaExp *)e)->e2->accept(this);
+        }
     };
 
     DeduceType v(sc, tparam, parameters, dedtypes, wm);
-    t->accept(&v);
+    if (Type *t = isType(o))
+        t->accept(&v);
+    else
+    {
+        assert(isExpression(o));
+        ((Expression *)o)->accept(&v);
+    }
     return v.result;
 }
 
@@ -4661,7 +4859,8 @@ MATCH TemplateAliasParameter::matchArg(Scope *sc, RootObject *oarg,
 {
     //printf("TemplateAliasParameter::matchArg()\n");
     MATCH m = MATCHexact;
-    RootObject *sa = getDsymbol(oarg);
+    Type *ta = isType(oarg);
+    RootObject *sa = ta && !ta->deco ? NULL : getDsymbol(oarg);
     Expression *ea = isExpression(oarg);
     if (ea && (ea->op == TOKthis || ea->op == TOKsuper))
         sa = ((ThisExp *)ea)->var;
@@ -4695,10 +4894,21 @@ MATCH TemplateAliasParameter::matchArg(Scope *sc, RootObject *oarg,
                     goto Lnomatch;
             }
         }
+        else if (ta && ta->ty == Tinstance && !specAlias)
+        {
+            /* Bugzilla xxxxx: Specialized parameter should be prefeerd
+             * match to the template type parameter.
+             *  template X(alias a) {}                      // a == this
+             *  template X(alias a : B!A, alias B, A...) {} // B!A => ta
+             */
+        }
         else if (sa && sa == TemplateTypeParameter::tdummy)
         {
-            // Bugzilla 2025: Aggregate Types should preferentially
-            // match to the template type parameter.
+            /* Bugzilla 2025: Aggregate Types should preferentially
+             * match to the template type parameter.
+             *  template X(alias a) {}  // a == this
+             *  template X(T) {}        // T => sa
+             */
         }
         else
             goto Lnomatch;
@@ -4711,18 +4921,22 @@ MATCH TemplateAliasParameter::matchArg(Scope *sc, RootObject *oarg,
         Dsymbol *sx = isDsymbol(sa);
         if (sa != specAlias && sx)
         {
-            Type *ta = isType(specAlias);
-            if (!ta)
+            Type *talias = isType(specAlias);
+            if (!talias)
                 goto Lnomatch;
 
             TemplateInstance *ti = sx->isTemplateInstance();
             if (!ti && sx->parent)
+            {
                 ti = sx->parent->isTemplateInstance();
+                if (ti && ti->name != sx->ident)
+                    goto Lnomatch;
+            }
             if (!ti)
                 goto Lnomatch;
 
             Type *t = new TypeInstance(Loc(), ti);
-            MATCH m2 = deduceType(t, sc, ta, parameters, dedtypes);
+            MATCH m2 = deduceType(t, sc, talias, parameters, dedtypes);
             if (m2 <= MATCHnomatch)
                 goto Lnomatch;
         }
