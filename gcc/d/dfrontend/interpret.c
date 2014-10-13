@@ -4100,6 +4100,15 @@ public:
                 newval, wantRef, isBlockAssignment, e);
             return;
         }
+        else if (e1->op == TOKarrayliteral && e1->type->toBasetype()->ty == Tsarray)
+        {
+            // Bugzilla 12212: Support direct assignment of static arrays.
+            // Rewrite as: (e1[] = newval)
+            SliceExp *se = new SliceExp(e1->loc, e1, NULL, NULL);
+            result = interpretAssignToSlice(e->loc, se,
+                newval, wantRef, isBlockAssignment, e);
+            return;
+        }
         else
         {
             e->error("%s cannot be evaluated at compile time", e->toChars());
@@ -5219,25 +5228,6 @@ public:
         if (result)
             return;
 
-        // Inline .dup. Special case because it needs the return type.
-        if (!pthis && fd->ident == Id::adDup && e->arguments && e->arguments->dim == 2)
-        {
-            Expression *ex = (*e->arguments)[1];
-            ex = ex->interpret(istate);
-            if (exceptionOrCantInterpret(ex))
-            {
-                result = ex;
-                return;
-            }
-            if (ex != EXP_CANT_INTERPRET)
-            {
-                if (ex->op == TOKslice)
-                    ex = resolveSlice(ex);
-                ex = paintTypeOntoLiteral(e->type, copyLiteral(ex));
-            }
-            result = ex;
-            return;
-        }
         if (!fd->fbody)
         {
             e->error("%s cannot be interpreted at compile time,"

@@ -384,8 +384,8 @@ Value[Key] rehash(T : Value[Key], Value, Key)(auto ref T aa)
 
 Value[Key] rehash(T : Value[Key], Value, Key)(T* aa)
 {
-    __aaRehash(cast(void**)aa, typeid(Value[Key]));
-    return aa;
+    _aaRehash(cast(void**)aa, typeid(Value[Key]));
+    return *aa;
 }
 
 Value[Key] dup(T : Value[Key], Value, Key)(T aa) if (is(typeof({
@@ -455,44 +455,44 @@ auto byValue(T : Value[Key], Value, Key)(T *aa)
     return (*aa).byValue();
 }
 
-Key[] keys(T : Value[Key], Value, Key)(T aa)
+Key[] keys(T : Value[Key], Value, Key)(T aa) @property
 {
     auto a = cast(void[])_aaKeys(cast(inout(void)*)aa, Key.sizeof);
     return *cast(Key[]*)&a;
 }
 
-Key[] keys(T : Value[Key], Value, Key)(T *aa)
+Key[] keys(T : Value[Key], Value, Key)(T *aa) @property
 {
-    return (*aa).keys();
+    return (*aa).keys;
 }
 
-Value[] values(T : Value[Key], Value, Key)(T aa)
+Value[] values(T : Value[Key], Value, Key)(T aa) @property
 {
     auto a = cast(void[])_aaValues(cast(inout(void)*)aa, Key.sizeof, Value.sizeof);
     return *cast(Value[]*)&a;
 }
 
-Value[] values(T : Value[Key], Value, Key)(T *aa)
+Value[] values(T : Value[Key], Value, Key)(T *aa) @property
 {
-    return (*aa).values();
+    return (*aa).values;
 }
 
-Value get(T : Value[Key], Value, Key, K, V)(T aa, K key, lazy V defaultValue)
-    if (is(typeof(aa[key] = defaultValue)))
+inout(V) get(K, V)(inout(V[K]) aa, K key, lazy inout(V) defaultValue)
 {
     auto p = key in aa;
-    return p ? *p : cast(Value)defaultValue;
+    return p ? *p : defaultValue;
 }
 
-Value get(T : Value[Key], Value, Key, K, V)(T* aa, K key, lazy V defaultValue)
-    if (is(typeof((*aa).get(key, defaultValue))))
+inout(V) get(K, V)(inout(V[K])* aa, K key, lazy inout(V) defaultValue)
 {
     return (*aa).get(key, defaultValue);
 }
 
-// Scheduled for deprecation in December 2012.
+// Originally scheduled for deprecation in December 2012.
+// Marked 'deprecated' in April 2014.  Rescheduled for final deprecation in October 2014.
 // Please use destroy instead of clear.
-alias destroy clear;
+deprecated("Please use destroy instead.")
+alias clear = destroy;
 
 void destroy(T)(T obj) if (is(T == class))
 {
@@ -538,7 +538,7 @@ template _isStaticArray(T)
 
 private
 {
-    extern (C) void _d_arrayshrinkfit(TypeInfo ti, void[] arr);
+    extern (C) void _d_arrayshrinkfit(TypeInfo ti, void[] arr) nothrow;
     extern (C) size_t _d_arraysetcapacity(TypeInfo ti, size_t newcapacity, void *arrptr) pure nothrow;
 }
 
@@ -552,7 +552,7 @@ size_t reserve(T)(ref T[] arr, size_t newcapacity) pure nothrow @trusted
     return _d_arraysetcapacity(typeid(T[]), newcapacity, cast(void *)&arr);
 }
 
-auto ref inout(T[]) assumeSafeAppend(T)(auto ref inout(T[]) arr)
+auto ref inout(T[]) assumeSafeAppend(T)(auto ref inout(T[]) arr) nothrow
 {
     _d_arrayshrinkfit(typeid(T[]), *(cast(void[]*)&arr));
     return arr;
@@ -629,3 +629,94 @@ version (unittest)
     }
 }
 
+private extern (C) void[] _d_newarrayU(const TypeInfo ti, size_t length) pure nothrow;
+
+/// Provide the .dup array property.
+auto dup(T)(T[] a)
+    if (!is(const(T) : T))
+{
+    import core.internal.traits : Unconst;
+    static assert(is(T : Unconst!T), "Cannot implicitly convert type "~T.stringof~
+                  " to "~Unconst!T.stringof~" in dup.");
+
+    // wrap unsafe _dup in @trusted to preserve @safe postblit
+    static if (__traits(compiles, (T b) @safe { T a = b; }))
+        return _trustedDup!(T, Unconst!T)(a);
+    else
+        return _dup!(T, Unconst!T)(a);
+}
+
+/// ditto
+// const overload to support implicit conversion to immutable (unique result, see DIP29)
+T[] dup(T)(const(T)[] a)
+    if (is(const(T) : T))
+{
+    // wrap unsafe _dup in @trusted to preserve @safe postblit
+    static if (__traits(compiles, (T b) @safe { T a = b; }))
+        return _trustedDup!(const(T), T)(a);
+    else
+        return _dup!(const(T), T)(a);
+}
+
+/// Provide the .idup array property.
+immutable(T)[] idup(T)(T[] a)
+{
+    static assert(is(T : immutable(T)), "Cannot implicitly convert type "~T.stringof~
+                  " to immutable in idup.");
+
+    // wrap unsafe _dup in @trusted to preserve @safe postblit
+    static if (__traits(compiles, (T b) @safe { T a = b; }))
+        return _trustedDup!(T, immutable(T))(a);
+    else
+        return _dup!(T, immutable(T))(a);
+}
+
+private U[] _trustedDup(T, U)(T[] a) @trusted
+{
+    return _dup!(T, U)(a);
+}
+
+private U[] _dup(T, U)(T[] a) // pure nothrow depends on postblit
+{
+    if (__ctfe)
+    {
+        U[] res;
+        foreach (ref e; a)
+            res ~= e;
+        return res;
+    }
+
+    import core.stdc.string : memcpy;
+
+    auto arr = _d_newarrayU(typeid(T[]), a.length);
+    memcpy(cast(void*)arr.ptr, cast(void*)a.ptr, T.sizeof * a.length);
+    auto res = *cast(typeof(return)*)&arr;
+    _doPostblit(res);
+    return res;
+}
+
+private void _doPostblit(T)(T[] ary)
+{
+    // infer static postblit type, run postblit if any
+    static if (is(T == struct))
+    {
+        import core.internal.traits : Unqual;
+
+        alias PostBlitT = typeof(function(void*){T a = T.init, b = a;});
+        // use typeid(Unqual!T) here to skip TypeInfo_Const/Shared/...
+        auto postBlit = cast(PostBlitT)typeid(Unqual!T).xpostblit;
+        if (postBlit !is null)
+        {
+            foreach (ref el; ary)
+                postBlit(cast(void*)&el);
+        }
+    }
+    else if ((&typeid(T).postblit).funcptr !is &TypeInfo.postblit)
+    {
+        alias PostBlitT = typeof(delegate(void*){T a = T.init, b = a;});
+        auto postBlit = cast(PostBlitT)&typeid(T).postblit;
+
+        foreach (ref el; ary)
+            postBlit(cast(void*)&el);
+    }
+}

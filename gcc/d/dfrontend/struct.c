@@ -331,7 +331,8 @@ unsigned AggregateDeclaration::size(Loc loc)
              *  1       this member does
              */
             static int func(Dsymbol *s, void *param)
-            {   SV *psv = (SV *)param;
+            {
+                SV *psv = (SV *)param;
                 VarDeclaration *v = s->isVarDeclaration();
                 if (v)
                 {
@@ -349,7 +350,8 @@ unsigned AggregateDeclaration::size(Loc loc)
         SV sv;
 
         for (size_t i = 0; i < members->dim; i++)
-        {   Dsymbol *s = (*members)[i];
+        {
+            Dsymbol *s = (*members)[i];
             if (s->apply(&SV::func, &sv))
                 goto L1;
         }
@@ -773,7 +775,6 @@ void StructDeclaration::semantic(Scope *sc)
         fields.setDim(0);
         structsize = 0;
         alignsize = 0;
-//        structalign = 0;
 
         scope = scx ? scx : sc->copy();
         scope->setNoFree();
@@ -924,7 +925,8 @@ void StructDeclaration::finalizeSize(Scope *sc)
     unsigned offset = 0;
     bool isunion = isUnionDeclaration() != NULL;
     for (size_t i = 0; i < members->dim; i++)
-    {   Dsymbol *s = (*members)[i];
+    {
+        Dsymbol *s = (*members)[i];
         s->setFieldOffset(this, &offset, isunion);
     }
     if (sizeok == SIZEOKfwd)

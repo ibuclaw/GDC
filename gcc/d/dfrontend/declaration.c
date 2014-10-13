@@ -521,11 +521,11 @@ void AliasDeclaration::semantic(Scope *sc)
         goto L2;                        // it's a symbolic alias
 
     type = type->addStorageClass(storage_class);
-    if (storage_class & (STCref | STCnothrow | STCpure | STCdisable))
+    if (storage_class & (STCref | STCnothrow | STCnogc | STCpure | STCdisable))
     {   // For 'ref' to be attached to function types, and picked
         // up by Type::resolve(), it has to go into sc.
         sc = sc->push();
-        sc->stc |= storage_class & (STCref | STCnothrow | STCpure | STCshared | STCdisable);
+        sc->stc |= storage_class & (STCref | STCnothrow | STCnogc | STCpure | STCshared | STCdisable);
         type->resolve(loc, sc, &e, &t, &s);
         sc = sc->pop();
     }
@@ -1310,6 +1310,7 @@ Lnomatch:
             Expression *e = tv->defaultInitLiteral(loc);
             Expression *e1 = new VarExp(loc, this);
             e = new ConstructExp(loc, e1, e);
+            e->op = TOKblit;
             e = e->semantic(sc);
             init = new ExpInitializer(loc, e);
             goto Ldtor;
@@ -1327,6 +1328,7 @@ Lnomatch:
             Expression *e1;
             e1 = new VarExp(loc, this);
             e = new ConstructExp(loc, e1, e);
+            e->op = TOKblit;
             e->type = e1->type;         // don't type check this, it would fail
             init = new ExpInitializer(loc, e);
             goto Ldtor;
@@ -1360,7 +1362,7 @@ Lnomatch:
     if (init)
     {
         sc = sc->push();
-        sc->stc &= ~(STC_TYPECTOR | STCpure | STCnothrow | STCref | STCdisable);
+        sc->stc &= ~(STC_TYPECTOR | STCpure | STCnothrow | STCnogc | STCref | STCdisable);
 
         ExpInitializer *ei = init->isExpInitializer();
         if (ei && isScope())

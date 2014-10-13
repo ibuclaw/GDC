@@ -20,6 +20,7 @@ private
 {
     import rt.memory;
     import rt.util.string;
+    import core.atomic;
     import core.stdc.stddef;
     import core.stdc.stdlib;
     import core.stdc.string;
@@ -156,7 +157,7 @@ extern (C) int rt_init()
        initialize different D libraries without knowing about the
        shared druntime. Also we need to attach any thread that calls
        rt_init. */
-    if (_initCount++) return 1;
+    if (atomicOp!"+="(_initCount, 1) > 1) return 1;
 
     _STI_monitor_staticctor();
     _STI_critical_init();
@@ -185,7 +186,7 @@ extern (C) int rt_init()
 extern (C) int rt_term()
 {
     if (!_initCount) return 0; // was never initialized
-    if (--_initCount) return 1;
+    if (atomicOp!"-="(_initCount, 1)) return 1;
 
     try
     {

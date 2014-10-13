@@ -471,6 +471,7 @@ void FuncDeclaration::semantic(Scope *sc)
 #endif
         if (tf->isref)      sc->stc |= STCref;
         if (tf->isnothrow)  sc->stc |= STCnothrow;
+        if (tf->isnogc)     sc->stc |= STCnogc;
         if (tf->isproperty) sc->stc |= STCproperty;
         if (tf->purity == PUREfwdref)   sc->stc |= STCpure;
         if (tf->trust == TRUSTsafe)     sc->stc |= STCsafe;
@@ -593,6 +594,7 @@ void FuncDeclaration::semantic(Scope *sc)
         tfo->mod        = tfx->mod;
         tfo->isref      = tfx->isref;
         tfo->isnothrow  = tfx->isnothrow;
+        tfo->isnogc     = tfx->isnogc;
         tfo->isproperty = tfx->isproperty;
         tfo->purity     = tfx->purity;
         tfo->trust      = tfx->trust;
@@ -1088,6 +1090,7 @@ void FuncDeclaration::semantic(Scope *sc)
             Loc loc = frequire->loc;
             TypeFunction *tf = new TypeFunction(NULL, Type::tvoid, 0, LINKd);
             tf->isnothrow = f->isnothrow;
+            tf->isnogc = f->isnogc;
             tf->purity = f->purity;
             tf->trust = f->trust;
             FuncDeclaration *fd = new FuncDeclaration(loc, loc,
@@ -1119,6 +1122,7 @@ void FuncDeclaration::semantic(Scope *sc)
             }
             TypeFunction *tf = new TypeFunction(arguments, Type::tvoid, 0, LINKd);
             tf->isnothrow = f->isnothrow;
+            tf->isnogc = f->isnogc;
             tf->purity = f->purity;
             tf->trust = f->trust;
             FuncDeclaration *fd = new FuncDeclaration(loc, loc,

@@ -599,22 +599,18 @@ void ClassDeclaration::semantic(Scope *sc)
     sc->structalign = STRUCTALIGN_DEFAULT;
     if (baseClass)
     {
-        sc->offset = baseClass->structsize;
         alignsize = baseClass->alignsize;
-        sc->offset = (sc->offset + alignsize - 1) & ~(alignsize - 1);
-//      if (enclosing)
-//          sc->offset += Target::ptrsize;      // room for uplevel context pointer
+        structsize = (baseClass->structsize + alignsize - 1) & ~(alignsize - 1);
     }
     else
     {
-        if (cpp)
-            sc->offset = Target::ptrsize;       // allow room for __vptr
-        else
-            sc->offset = Target::ptrsize * 2;   // allow room for __vptr and __monitor
         alignsize = Target::ptrsize;
+        if (cpp)
+            structsize = Target::ptrsize;       // allow room for __vptr
+        else
+            structsize = Target::ptrsize * 2;   // allow room for __vptr and __monitor
     }
     sc->userAttribDecl = NULL;
-    structsize = sc->offset;
     Scope scsave = *sc;
     size_t members_dim = members->dim;
     sizeok = SIZEOKnone;
@@ -652,7 +648,6 @@ void ClassDeclaration::semantic(Scope *sc)
         Dsymbol *s = (*members)[i];
         s->setFieldOffset(this, &offset, false);
     }
-    sc->offset = structsize;
 
     if (global.errors != errors)
     {
@@ -672,7 +667,6 @@ void ClassDeclaration::semantic(Scope *sc)
         fields.setDim(0);
         structsize = 0;
         alignsize = 0;
-//        structalign = 0;
 
         sc = sc->pop();
 
@@ -726,6 +720,7 @@ void ClassDeclaration::semantic(Scope *sc)
             TypeFunction *tf = new TypeFunction(NULL, NULL, 0, LINKd, fd->storage_class);
             tf->purity = btf->purity;
             tf->isnothrow = btf->isnothrow;
+            tf->isnogc = btf->isnogc;
             tf->trust = btf->trust;
             CtorDeclaration *ctor = new CtorDeclaration(loc, Loc(), 0, tf);
             ctor->fbody = new CompoundStatement(Loc(), new Statements());
@@ -752,28 +747,28 @@ void ClassDeclaration::semantic(Scope *sc)
 #endif
 
     // Allocate instance of each new interface
-    sc->offset = structsize;
+    offset = structsize;
     for (size_t i = 0; i < vtblInterfaces->dim; i++)
     {
         BaseClass *b = (*vtblInterfaces)[i];
         unsigned thissize = Target::ptrsize;
 
-        alignmember(STRUCTALIGN_DEFAULT, thissize, &sc->offset);
+        alignmember(STRUCTALIGN_DEFAULT, thissize, &offset);
         assert(b->offset == 0);
-        b->offset = sc->offset;
+        b->offset = offset;
 
         // Take care of single inheritance offsets
         while (b->baseInterfaces_dim)
         {
             b = &b->baseInterfaces[0];
-            b->offset = sc->offset;
+            b->offset = offset;
         }
 
-        sc->offset += thissize;
+        offset += thissize;
         if (alignsize < thissize)
             alignsize = thissize;
     }
-    structsize = sc->offset;
+    structsize = offset;
     sizeok = SIZEOKdone;
     Module::dprogress++;
 
@@ -1450,9 +1445,8 @@ void InterfaceDeclaration::semantic(Scope *sc)
     sc->protection = PROTpublic;
     sc->explicitProtection = 0;
 //    structalign = sc->structalign;
-    sc->offset = Target::ptrsize * 2;
     sc->userAttribDecl = NULL;
-    structsize = sc->offset;
+    structsize = Target::ptrsize * 2;
     inuse++;
 
     /* Set scope so if there are forward references, we still might be able to

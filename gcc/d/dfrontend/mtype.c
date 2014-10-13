@@ -1949,7 +1949,12 @@ unsigned char Type::deduceWild(Type *t, bool isRef)
         if (isImmutable())
             return MODimmutable;
         else if (isWildConst())
-            return MODwildconst;
+        {
+            if (t->isWildConst())
+                return MODwild;
+            else
+                return MODwildconst;
+        }
         else if (isWild())
             return MODwild;
         else if (isConst())
@@ -2107,6 +2112,7 @@ Type *TypeFunction::substWildTo(unsigned)
     TypeFunction *t = new TypeFunction(params, tret, varargs, linkage);
     t->mod = ((mod & MODwild) ? (mod & ~MODwild) | MODconst : mod);
     t->isnothrow = isnothrow;
+    t->isnogc = isnogc;
     t->purity = purity;
     t->isproperty = isproperty;
     t->isref = isref;
@@ -3674,7 +3680,10 @@ Expression *TypeVector::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
 #endif
     if (ident == Id::array)
     {
-        e = e->castTo(sc, basetype);
+        //e = e->castTo(sc, basetype);
+        // Keep lvalue-ness
+        e = e->copy();
+        e->type = basetype;
         return e;
     }
     if (ident == Id::offsetof || ident == Id::offset || ident == Id::stringof)
@@ -3754,8 +3763,7 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
 
     if (e->op == TOKtype)
     {
-        if (ident == Id::sort || ident == Id::reverse ||
-            ident == Id::dup || ident == Id::idup)
+        if (ident == Id::sort || ident == Id::reverse)
         {
             e->error("%s is not an expression", e->toChars());
             return new ErrorExp();
@@ -3810,68 +3818,32 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
         e = new CallExp(e->loc, ec, arguments);
         e->type = next->arrayOf();
     }
-    else if (ident == Id::reverse || ident == Id::dup || ident == Id::idup)
+    else if (ident == Id::reverse)
     {
         Expression *ec;
         FuncDeclaration *fd;
         Expressions *arguments;
         dinteger_t size = next->size(e->loc);
-        int dup;
 
         Expression *olde = e;
         assert(size);
-        dup = (ident == Id::dup || ident == Id::idup);
 
-        if (dup) {
-            static FuncDeclaration *adDup_fd = NULL;
-            if (!adDup_fd) {
-                Parameters* args = new Parameters;
-                args->push(new Parameter(STCin, Type::dtypeinfo->type, NULL, NULL));
-                args->push(new Parameter(STCin, Type::tvoid->arrayOf(), NULL, NULL));
-                adDup_fd = FuncDeclaration::genCfunc(args, Type::tvoid->arrayOf(), Id::adDup);
-            }
-            fd = adDup_fd;
-        } else {
-            static FuncDeclaration *adReverse_fd = NULL;
-            if (!adReverse_fd) {
-                Parameters* args = new Parameters;
-                args->push(new Parameter(STCin, Type::tvoid->arrayOf(), NULL, NULL));
-                args->push(new Parameter(STCin, Type::tsize_t, NULL, NULL));
-                adReverse_fd = FuncDeclaration::genCfunc(args, Type::tvoid->arrayOf(), Id::adReverse);
-            }
-            fd = adReverse_fd;
+        static FuncDeclaration *adReverse_fd = NULL;
+        if (!adReverse_fd) {
+            Parameters* args = new Parameters;
+            args->push(new Parameter(STCin, Type::tvoid->arrayOf(), NULL, NULL));
+            args->push(new Parameter(STCin, Type::tsize_t, NULL, NULL));
+            adReverse_fd = FuncDeclaration::genCfunc(args, Type::tvoid->arrayOf(), Id::adReverse);
         }
+        fd = adReverse_fd;
 
         ec = new VarExp(Loc(), fd);
         e = e->castTo(sc, n->arrayOf());        // convert to dynamic array
         arguments = new Expressions();
-        if (dup)
-            arguments->push(getTypeInfo(sc));
         arguments->push(e);
-        if (!dup)
-            arguments->push(new IntegerExp(Loc(), size, Type::tsize_t));
+        arguments->push(new IntegerExp(Loc(), size, Type::tsize_t));
         e = new CallExp(e->loc, ec, arguments);
-        if (ident == Id::idup)
-        {   Type *einv = next->immutableOf();
-            if (next->implicitConvTo(einv) < MATCHconst)
-            {   error(e->loc, "cannot implicitly convert element type %s to immutable in %s.idup",
-                    next->toChars(), olde->toChars());
-                goto Lerror;
-            }
-            e->type = einv->arrayOf();
-        }
-        else if (ident == Id::dup)
-        {
-            Type *emut = next->mutableOf();
-            if (next->implicitConvTo(emut) < MATCHconst)
-            {   error(e->loc, "cannot implicitly convert element type %s to mutable in %s.dup",
-                    next->toChars(), olde->toChars());
-                goto Lerror;
-            }
-            e->type = emut->arrayOf();
-        }
-        else
-            e->type = next->mutableOf()->arrayOf();
+        e->type = next->mutableOf()->arrayOf();
     }
     else if (ident == Id::sort)
     {
@@ -4036,7 +4008,9 @@ void TypeSArray::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol
             if (d >= td->objects->dim)
             {
                 error(loc, "tuple index %llu exceeds length %u", d, td->objects->dim);
-                goto Ldefault;
+                *ps = NULL;
+                *pt = Type::terror;
+                return;
             }
             RootObject *o = (*td->objects)[(size_t)d];
             if (o->dyncast() == DYNCAST_DSYMBOL)
@@ -4819,6 +4793,7 @@ Expression *TypeAArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
             TypeFunction *tf = (TypeFunction *)fd_aaLen->type;
             tf->purity = PUREconst;
             tf->isnothrow = true;
+            tf->isnogc = false;
         }
         Expression *ev = new VarExp(e->loc, fd_aaLen);
         e = new CallExp(e->loc, ev, e);
@@ -5156,6 +5131,7 @@ TypeFunction::TypeFunction(Parameters *parameters, Type *treturn, int varargs, L
     this->linkage = linkage;
     this->inuse = 0;
     this->isnothrow = false;
+    this->isnogc = false;
     this->purity = PUREimpure;
     this->isproperty = false;
     this->isref = false;
@@ -5166,6 +5142,8 @@ TypeFunction::TypeFunction(Parameters *parameters, Type *treturn, int varargs, L
         this->purity = PUREfwdref;
     if (stc & STCnothrow)
         this->isnothrow = true;
+    if (stc & STCnogc)
+        this->isnogc = true;
     if (stc & STCproperty)
         this->isproperty = true;
 
@@ -5198,6 +5176,7 @@ Type *TypeFunction::syntaxCopy()
     TypeFunction *t = new TypeFunction(params, treturn, varargs, linkage);
     t->mod = mod;
     t->isnothrow = isnothrow;
+    t->isnogc = isnogc;
     t->purity = purity;
     t->isproperty = isproperty;
     t->isref = isref;
@@ -5347,13 +5326,16 @@ Lcovariant:
 #endif
     }
 
-    /* Can convert pure to impure, and nothrow to throw
+    /* Can convert pure to impure, nothrow to throw, and nogc to gc
      */
     if (!t1->purity && t2->purity)
         stc |= STCpure;
 
     if (!t1->isnothrow && t2->isnothrow)
         stc |= STCnothrow;
+
+    if (!t1->isnogc && t2->isnogc)
+        stc |= STCnogc;
 
     /* Can convert safe/trusted to system
      */
@@ -5405,7 +5387,7 @@ void TypeFunction::toDecoBuffer(OutBuffer *buf, int flag)
     }
     buf->writeByte(mc);
 
-    if (purity || isnothrow || isproperty || isref || trust)
+    if (purity || isnothrow || isnogc || isproperty || isref || trust)
     {
         if (purity)
             buf->writestring("Na");
@@ -5415,6 +5397,8 @@ void TypeFunction::toDecoBuffer(OutBuffer *buf, int flag)
             buf->writestring("Nc");
         if (isproperty)
             buf->writestring("Nd");
+        if (isnogc)
+            buf->writestring("Ni");
         switch (trust)
         {
             case TRUSTtrusted:
@@ -5469,6 +5453,8 @@ Type *TypeFunction::semantic(Loc loc, Scope *sc)
         tf->purity = PUREfwdref;
     if (sc->stc & STCnothrow)
         tf->isnothrow = true;
+    if (sc->stc & STCnogc)
+        tf->isnogc = true;
     if (sc->stc & STCref)
         tf->isref = true;
 
@@ -6173,6 +6159,7 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
     TypeFunction *t = (TypeFunction *)Type::addStorageClass(stc);
     if ((stc & STCpure && !t->purity) ||
         (stc & STCnothrow && !t->isnothrow) ||
+        (stc & STCnogc && !t->isnogc) ||
         (stc & STCsafe && t->trust < TRUSTtrusted))
     {
         // Klunky to change these
@@ -6181,6 +6168,7 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
         tf->fargs = fargs;
         tf->purity = t->purity;
         tf->isnothrow = t->isnothrow;
+        tf->isnogc = t->isnogc;
         tf->isproperty = t->isproperty;
         tf->isref = t->isref;
         tf->trust = t->trust;
@@ -6190,6 +6178,8 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
             tf->purity = PUREfwdref;
         if (stc & STCnothrow)
             tf->isnothrow = true;
+        if (stc & STCnogc)
+            tf->isnogc = true;
         if (stc & STCsafe)
             tf->trust = TRUSTsafe;
 
@@ -8073,8 +8063,9 @@ Expression *TypeStruct::defaultInitLiteral(Loc loc)
 #if LOGDEFAULTINIT
     printf("TypeStruct::defaultInitLiteral() '%s'\n", toChars());
 #endif
-    //if (sym->isNested())
-    //    return defaultInit(loc);
+    sym->size(loc);
+    if (sym->sizeok != SIZEOKdone)
+        return new ErrorExp();
     Expressions *structelems = new Expressions();
     structelems->setDim(sym->fields.dim - sym->isNested());
     unsigned offset = 0;

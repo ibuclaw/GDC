@@ -85,6 +85,26 @@ else version( linux )
 
         alias fexcept_t = uint;
     }
+    // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/mips/bits/fenv.h
+    else version (MIPS32)
+    {
+        struct fenv_t
+        {
+            uint   __fp_control_register;
+        }
+
+        alias fexcept_t = ushort;
+    }
+    // https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/mips/bits/fenv.h
+    else version (MIPS64)
+    {
+        struct fenv_t
+        {
+            uint   __fp_control_register;
+        }
+
+        alias fexcept_t = ushort;
+    }
     else
     {
         static assert(0, "Unimplemented architecture");
@@ -124,6 +144,27 @@ else version ( FreeBSD )
 
     alias ushort fexcept_t;
 }
+else version( Android )
+{
+    version(X86)
+    {
+        struct fenv_t
+        {
+            ushort   __control;
+            ushort   __mxcsr_hi;
+            ushort   __status;
+            ushort   __mxcsr_lo;
+            uint     __tag;
+            byte[16] __other;
+        }
+    
+        alias ushort fexcept_t;
+    }
+    else
+    {
+        static assert(false, "Architecture not supported.");
+    }
+}
 else
 {
     static assert( false, "Unsupported platform" );
@@ -159,6 +200,11 @@ else version( OSX )
     fenv_t* FE_DFL_ENV = &_FE_DFL_ENV;
 }
 else version( FreeBSD )
+{
+    private extern const fenv_t __fe_dfl_env;
+    const fenv_t* FE_DFL_ENV = &__fe_dfl_env;
+}
+else version( Android )
 {
     private extern const fenv_t __fe_dfl_env;
     const fenv_t* FE_DFL_ENV = &__fe_dfl_env;
