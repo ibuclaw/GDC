@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
+// Copyright (c) 1999-2014 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -1157,6 +1157,9 @@ Ldone:
 
         if (!f->isnothrow)
             flags |= FUNCFLAGnothrowInprocess;
+
+        if (!f->isnogc)
+            flags |= FUNCFLAGnogcInprocess;
     }
 
     Module::dprogress++;
@@ -2108,6 +2111,11 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->pop();
     }
 
+    if (f->isnogc && needsClosure() && setGC())
+    {
+        error("@nogc function allocates a closure with the GC");
+    }
+
     /* If function survived being marked as impure, then it is pure
      */
     if (flags & FUNCFLAGpurityInprocess)
@@ -2122,6 +2130,13 @@ void FuncDeclaration::semantic3(Scope *sc)
         flags &= ~FUNCFLAGsafetyInprocess;
         if (type == f) f = (TypeFunction *)f->copy();
         f->trust = TRUSTsafe;
+    }
+
+    if (flags & FUNCFLAGnogcInprocess)
+    {
+        flags &= ~FUNCFLAGnogcInprocess;
+        if (type == f) f = (TypeFunction *)f->copy();
+        f->isnogc = true;
     }
 
     if (fbody)
@@ -3546,10 +3561,7 @@ bool FuncDeclaration::isSafe()
 
 bool FuncDeclaration::isSafeBypassingInference()
 {
-    if (flags & FUNCFLAGsafetyInprocess)
-        return false;
-    else
-        return isSafe();
+    return !(flags & FUNCFLAGsafetyInprocess) && isSafe();
 }
 
 bool FuncDeclaration::isTrusted()
@@ -3573,6 +3585,37 @@ bool FuncDeclaration::setUnsafe()
         ((TypeFunction *)type)->trust = TRUSTsystem;
     }
     else if (isSafe())
+        return true;
+    return false;
+}
+
+bool FuncDeclaration::isNogc()
+{
+    assert(type->ty == Tfunction);
+    if (flags & FUNCFLAGnogcInprocess)
+        setGC();
+    return ((TypeFunction *)type)->isnogc;
+}
+
+bool FuncDeclaration::isNogcBypassingInference()
+{
+    return !(flags & FUNCFLAGnogcInprocess) && isNogc();
+}
+
+/**************************************
+ * The function is doing something that may allocate with the GC,
+ * so mark it as not nogc (not no-how).
+ * Returns:
+ *      true if function is marked as @nogc, meaning a user error occurred
+ */
+bool FuncDeclaration::setGC()
+{
+    if (flags & FUNCFLAGnogcInprocess)
+    {
+        flags &= ~FUNCFLAGnogcInprocess;
+        ((TypeFunction *)type)->isnogc = false;
+    }
+    else if (isNogc())
         return true;
     return false;
 }

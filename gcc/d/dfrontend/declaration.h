@@ -637,6 +637,7 @@ public:
     #define FUNCFLAGpurityInprocess 1   // working on determining purity
     #define FUNCFLAGsafetyInprocess 2   // working on determining safety
     #define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
+    #define FUNCFLAGnogcInprocess 8     // working on determining @nogc
 
     FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -681,6 +682,11 @@ public:
     bool isSafeBypassingInference();
     bool isTrusted();
     bool setUnsafe();
+
+    bool isNogc();
+    bool isNogcBypassingInference();
+    bool setGC();
+
     void printGCUsage(Loc loc, const char *warn);
     bool isolateReturn();
     bool parametersIntersect(Type *t);

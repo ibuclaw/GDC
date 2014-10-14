@@ -388,7 +388,7 @@ unittest
  *      Results are undefined if |x| >= $(POWER 2,64).
  */
 
-real cos(real x) @safe pure nothrow;       /* intrinsic */
+real cos(real x) @nogc @safe pure nothrow;       /* intrinsic */
 
 /***********************************
  * Returns sine of x. x is in radians.
@@ -403,7 +403,7 @@ real cos(real x) @safe pure nothrow;       /* intrinsic */
  *      Results are undefined if |x| >= $(POWER 2,64).
  */
 
-real sin(real x) @safe pure nothrow;       /* intrinsic */
+real sin(real x) @nogc @safe pure nothrow;       /* intrinsic */
 
 
 /***********************************
@@ -469,7 +469,7 @@ unittest
  *      )
  */
 
-real tan(real x) @trusted pure nothrow
+real tan(real x) @nogc @trusted pure nothrow
 {
     version(D_InlineAsm_X86)
     {
@@ -1185,7 +1185,7 @@ unittest
  * greater than long.max, the result is
  * indeterminate.
  */
-long rndtol(real x) @safe pure nothrow;    /* intrinsic */
+long rndtol(real x) @nogc @safe pure nothrow;    /* intrinsic */
 
 
 /*****************************************
@@ -1206,13 +1206,13 @@ extern (C) real rndtonl(real x);
  *      $(TR $(TD +$(INFIN)) $(TD +$(INFIN)) $(TD no))
  *      )
  */
-float sqrt(float x) @safe pure nothrow;    /* intrinsic */
+float sqrt(float x) @nogc @safe pure nothrow;    /* intrinsic */
 
 /// ditto
-double sqrt(double x) @safe pure nothrow;  /* intrinsic */
+double sqrt(double x) @nogc @safe pure nothrow;  /* intrinsic */
 
 /// ditto
-real sqrt(real x) @safe pure nothrow;      /* intrinsic */
+real sqrt(real x) @nogc @safe pure nothrow;      /* intrinsic */
 
 unittest
 {
@@ -1222,7 +1222,7 @@ unittest
     enum ZX82 = sqrt(7.0L);
 }
 
-creal sqrt(creal z) @safe pure nothrow
+creal sqrt(creal z) @nogc @safe pure nothrow
 {
     creal c;
     real x,y,w,r;
@@ -1598,7 +1598,7 @@ L_largenegative:
  *    $(TR $(TD $(NAN))        $(TD $(NAN))    )
  *  )
  */
-real exp2(real x) @trusted pure nothrow
+real exp2(real x) @nogc @trusted pure nothrow
 {
     version(D_InlineAsm_X86)
     {
@@ -2236,7 +2236,7 @@ alias core.stdc.math.FP_ILOGBNAN FP_ILOGBNAN;
  * References: frexp
  */
 
-real ldexp(real n, int exp) @safe pure nothrow;    /* intrinsic */
+real ldexp(real n, int exp) @nogc @safe pure nothrow;    /* intrinsic */
 
 unittest
 {
@@ -2884,7 +2884,7 @@ real cbrt(real x) @trusted nothrow
  *      $(TR $(TD $(PLUSMN)$(INFIN)) $(TD +$(INFIN)) )
  *      )
  */
-real fabs(real x) @safe pure nothrow;      /* intrinsic */
+real fabs(real x) @nogc @safe pure nothrow;      /* intrinsic */
 
 
 /***********************************************************************
@@ -3191,7 +3191,7 @@ real nearbyint(real x) @trusted nothrow
  * $(B nearbyint) performs
  * the same operation, but does not set the FE_INEXACT exception.
  */
-real rint(real x) @safe pure nothrow;      /* intrinsic */
+real rint(real x) @nogc @safe pure nothrow;      /* intrinsic */
 
 /***************************************
  * Rounds x to the nearest integer value, using the current rounding
@@ -4133,7 +4133,7 @@ unittest
  * Returns !=0 if e is a NaN.
  */
 
-bool isNaN(real x) @trusted pure nothrow
+bool isNaN(real x) @nogc @trusted pure nothrow
 {
     alias floatTraits!(real) F;
     static if (real.mant_dig == 53) // double
@@ -4321,7 +4321,7 @@ unittest
  * Return !=0 if e is $(PLUSMN)$(INFIN).
  */
 
-bool isInfinity(real x) @trusted pure nothrow
+bool isInfinity(real x) @nogc @trusted pure nothrow
 {
     alias floatTraits!(real) F;
     static if (real.mant_dig == 53)
@@ -4399,7 +4399,7 @@ bool isIdentical(real x, real y) @trusted pure nothrow
  * Return 1 if sign bit of e is set, 0 if not.
  */
 
-int signbit(real x) @trusted pure nothrow
+int signbit(real x) @nogc @trusted pure nothrow
 {
     return ((cast(ubyte *)&x)[floatTraits!(real).SIGNPOS_BYTE] & 0x80) != 0;
 }
@@ -4489,7 +4489,7 @@ real NaN(ulong payload) @trusted pure nothrow
 {
     static if (real.mant_dig == 64)
     {
-        //real80 (in x86 real format, the implied bit is actually 
+        //real80 (in x86 real format, the implied bit is actually
         //not implied but a real bit which is stored in the real)
         ulong v = 3; // implied bit = 1, quiet bit = 1
     }
@@ -4995,7 +4995,7 @@ real fma(real x, real y, real z) @safe pure nothrow { return (x * y) + z; }
 /*******************************************************************
  * Compute the value of x $(SUP n), where n is an integer
  */
-Unqual!F pow(F, G)(F x, G n) @trusted pure nothrow
+Unqual!F pow(F, G)(F x, G n) @nogc @trusted pure nothrow
     if (isFloatingPoint!(F) && isIntegral!(G))
 {
     real p = 1.0, v = void;
@@ -5098,7 +5098,7 @@ unittest
  * regardless of the value of x.
  */
 
-typeof(Unqual!(F).init * Unqual!(G).init) pow(F, G)(F x, G n) @trusted pure nothrow
+typeof(Unqual!(F).init * Unqual!(G).init) pow(F, G)(F x, G n) @nogc @trusted pure nothrow
 if (isIntegral!(F) && isIntegral!(G))
 {
     if (n<0) return x/0; // Only support positive powers
@@ -5153,7 +5153,7 @@ unittest
 }
 
 /**Computes integer to floating point powers.*/
-real pow(I, F)(I x, F y) @trusted pure nothrow
+real pow(I, F)(I x, F y) @nogc @trusted pure nothrow
     if(isIntegral!I && isFloatingPoint!F)
 {
     return pow(cast(real) x, cast(Unqual!F) y);
@@ -5202,12 +5202,12 @@ real pow(I, F)(I x, F y) @trusted pure nothrow
  * )
  */
 
-Unqual!(Largest!(F, G)) pow(F, G)(F x, G y) @trusted pure nothrow
+Unqual!(Largest!(F, G)) pow(F, G)(F x, G y) @nogc @trusted pure nothrow
     if (isFloatingPoint!(F) && isFloatingPoint!(G))
 {
     alias typeof(return) Float;
 
-    static real impl(real x, real y) pure nothrow
+    static real impl(real x, real y) @nogc pure nothrow
     {
         // Special cases.
         if (isNaN(y))
@@ -6010,8 +6010,8 @@ alias isInfinity isinf;
  * translate to a single x87 instruction.
  */
 
-real yl2x(real x, real y)   @safe pure nothrow;       // y * log2(x)
-real yl2xp1(real x, real y) @safe pure nothrow;       // y * log2(x + 1)
+real yl2x(real x, real y)   @nogc @safe pure nothrow;       // y * log2(x)
+real yl2xp1(real x, real y) @nogc @safe pure nothrow;       // y * log2(x + 1)
 
 unittest
 {

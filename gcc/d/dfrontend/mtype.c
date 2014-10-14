@@ -3786,7 +3786,7 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
             Parameters *args = new Parameters;
             Type *next = n->ty == Twchar ? Type::twchar : Type::tchar;
             Type *arrty = next->arrayOf();
-            args->push(new Parameter(STCin, arrty, NULL, NULL));
+            args->push(new Parameter(0, arrty, NULL, NULL));
             reverseFd[i] = FuncDeclaration::genCfunc(args, arrty, reverseName[i]);
         }
 
@@ -3807,7 +3807,7 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
             Parameters *args = new Parameters;
             Type *next = n->ty == Twchar ? Type::twchar : Type::tchar;
             Type *arrty = next->arrayOf();
-            args->push(new Parameter(STCin, arrty, NULL, NULL));
+            args->push(new Parameter(0, arrty, NULL, NULL));
             sortFd[i] = FuncDeclaration::genCfunc(args, arrty, sortName[i]);
         }
 
@@ -3831,8 +3831,8 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
         static FuncDeclaration *adReverse_fd = NULL;
         if (!adReverse_fd) {
             Parameters* args = new Parameters;
-            args->push(new Parameter(STCin, Type::tvoid->arrayOf(), NULL, NULL));
-            args->push(new Parameter(STCin, Type::tsize_t, NULL, NULL));
+            args->push(new Parameter(0, Type::tvoid->arrayOf(), NULL, NULL));
+            args->push(new Parameter(0, Type::tsize_t, NULL, NULL));
             adReverse_fd = FuncDeclaration::genCfunc(args, Type::tvoid->arrayOf(), Id::adReverse);
         }
         fd = adReverse_fd;
@@ -3853,8 +3853,8 @@ Expression *TypeArray::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
 
         if (!fd) {
             Parameters* args = new Parameters;
-            args->push(new Parameter(STCin, Type::tvoid->arrayOf(), NULL, NULL));
-            args->push(new Parameter(STCin, Type::dtypeinfo->type, NULL, NULL));
+            args->push(new Parameter(0, Type::tvoid->arrayOf(), NULL, NULL));
+            args->push(new Parameter(0, Type::dtypeinfo->type, NULL, NULL));
             fd = FuncDeclaration::genCfunc(args, Type::tvoid->arrayOf(), "_adSort");
         }
         ec = new VarExp(Loc(), fd);
@@ -4717,11 +4717,13 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
         {
             /* AA's need opCmp. Issue error if not correctly set up.
              */
-            TypeStruct *ts = (TypeStruct *)index->toBasetype();
-            if (ts->sym->xcmp == ts->sym->xerrcmp)
+            StructDeclaration *sd = ((TypeStruct *)index->toBasetype())->sym;
+            if (sd->scope)
+                sd->semantic(NULL);
+            if (sd->xcmp == sd->xerrcmp)
             {
                 error(loc, "associative array key type %s does not have 'const int opCmp(ref const %s)' member function",
-                        index->toBasetype()->toChars(), ts->sym->toChars());
+                        index->toBasetype()->toChars(), sd->toChars());
                 return Type::terror;
             }
             break;

@@ -1320,6 +1320,7 @@ bool Expression::checkPostblit(Scope *sc, Type *t)
             {
                 checkPurity(sc, sd->postblit);
                 checkSafety(sc, sd->postblit);
+                checkNogc(sc, sd->postblit);
             }
             return true;
         }
@@ -2107,7 +2108,12 @@ Expression *Expression::toLvalue(Scope *sc, Expression *e)
         e = this;
     else if (!loc.filename)
         loc = e->loc;
-    error("%s is not an lvalue", e->toChars());
+
+    if (e->op == TOKtype)
+        error("%s '%s' is a type, not an lvalue", e->type->kind(), e->type->toChars());
+    else
+        error("%s is not an lvalue", e->toChars());
+
     return new ErrorExp();
 }
 
@@ -2440,6 +2446,23 @@ void Expression::checkSafety(Scope *sc, FuncDeclaration *f)
                 loc = sc->func->loc;
 
             error("safe function '%s' cannot call system function '%s'",
+                sc->func->toPrettyChars(), f->toPrettyChars());
+        }
+    }
+}
+
+void Expression::checkNogc(Scope *sc, FuncDeclaration *f)
+{
+    if (sc->func && sc->func != f && !sc->intypeof &&
+        !(sc->flags & SCOPEctfe) &&
+        !f->isNogc())
+    {
+        if (sc->func->setGC())
+        {
+            if (loc.linnum == 0)  // e.g. implicitly generated dtor
+                loc = sc->func->loc;
+
+            error("@nogc function '%s' cannot call non-@nogc function '%s'",
                 sc->func->toPrettyChars(), f->toPrettyChars());
         }
     }
@@ -4070,6 +4093,24 @@ Expression *ArrayLiteralExp::semantic(Scope *sc)
 
     semanticTypeInfo(sc, t0);
 
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) &&
+        elements && type->toBasetype()->ty == Tarray)
+    {
+        for (size_t i = 0; i < elements->dim; i++)
+        {
+            if (!((*elements)[i])->isConst())
+            {
+                if (sc->func->setGC())
+                {
+                    error("array literals in @nogc function %s may cause GC allocation",
+                        sc->func->toChars());
+                    return new ErrorExp();
+                }
+                break;
+            }
+        }
+    }
+
     return this;
 }
 
@@ -4203,6 +4244,12 @@ Expression *AssocArrayLiteralExp::semantic(Scope *sc)
 
     if (tkey == Type::terror || tvalue == Type::terror)
         return new ErrorExp;
+
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && keys->dim && sc->func->setGC())
+    {
+        error("associative array literal in @nogc function %s may cause GC allocation", sc->func->toChars());
+        return new ErrorExp;
+    }
 
     type = new TypeAArray(tvalue, tkey);
     type = type->semantic(loc, sc);
@@ -4926,6 +4973,7 @@ Lagain:
             checkDeprecated(sc, f);
             checkPurity(sc, f);
             checkSafety(sc, f);
+            checkNogc(sc, f);
             member = f->isCtorDeclaration();
             assert(member);
 
@@ -5029,6 +5077,7 @@ Lagain:
             checkDeprecated(sc, f);
             checkPurity(sc, f);
             checkSafety(sc, f);
+            checkNogc(sc, f);
             member = f->isCtorDeclaration();
             assert(member);
 
@@ -5131,6 +5180,35 @@ Lagain:
     //printf("NewExp: '%s'\n", toChars());
     //printf("NewExp:type '%s'\n", type->toChars());
     semanticTypeInfo(sc, type);
+
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe))
+    {
+        if (member && !member->isNogc() && sc->func->setGC())
+        {
+            error("constructor for %s may allocate in 'new' in @nogc function %s",
+                type->toChars(), sc->func->toChars());
+            goto Lerr;
+        }
+        if (!onstack)
+        {
+            if (allocator)
+            {
+                if (!allocator->isNogc() && sc->func->setGC())
+                {
+                    error("operator new in @nogc function %s may allocate", sc->func->toChars());
+                    goto Lerr;
+                }
+            }
+            else
+            {
+                if (sc->func->setGC())
+                {
+                    error("cannot use 'new' in @nogc function %s", sc->func->toChars());
+                    goto Lerr;
+                }
+            }
+        }
+    }
 
     return this;
 
@@ -8333,6 +8411,7 @@ Lagain:
         checkDeprecated(sc, f);
         checkPurity(sc, f);
         checkSafety(sc, f);
+        checkNogc(sc, f);
         accessCheck(loc, sc, ue->e1, f);
         if (!f->needThis())
         {
@@ -8418,6 +8497,7 @@ Lagain:
                 checkDeprecated(sc, f);
                 checkPurity(sc, f);
                 checkSafety(sc, f);
+                checkNogc(sc, f);
                 e1 = new DotVarExp(e1->loc, e1, f);
                 e1 = e1->semantic(sc);
                 t1 = e1->type;
@@ -8456,6 +8536,7 @@ Lagain:
             checkDeprecated(sc, f);
             checkPurity(sc, f);
             checkSafety(sc, f);
+            checkNogc(sc, f);
             e1 = new DotVarExp(e1->loc, e1, f);
             e1 = e1->semantic(sc);
             t1 = e1->type;
@@ -8600,6 +8681,7 @@ Lagain:
         {
             checkPurity(sc, f);
             checkSafety(sc, f);
+            checkNogc(sc, f);
             f->checkNestedReference(sc, loc);
         }
         else if (sc->func && !(sc->flags & SCOPEctfe))
@@ -8607,6 +8689,11 @@ Lagain:
             if (!tf->purity && !(sc->flags & SCOPEdebug) && sc->func->setImpure())
             {
                 error("pure function '%s' cannot call impure %s '%s'", sc->func->toPrettyChars(), p, e1->toChars());
+                return new ErrorExp();
+            }
+            if (!tf->isnogc && sc->func->setGC())
+            {
+                error("@nogc function '%s' cannot call non-@nogc %s '%s'", sc->func->toPrettyChars(), p, e1->toChars());
                 return new ErrorExp();
             }
             if (tf->trust <= TRUSTsystem && sc->func->setUnsafe())
@@ -8683,6 +8770,7 @@ Lagain:
         checkDeprecated(sc, f);
         checkPurity(sc, f);
         checkSafety(sc, f);
+        checkNogc(sc, f);
         f->checkNestedReference(sc, loc);
         accessCheck(loc, sc, NULL, f);
 
@@ -9247,6 +9335,7 @@ Expression *DeleteExp::semantic(Scope *sc)
             {   /* Because COM classes are deleted by IUnknown.Release()
                  */
                 error("cannot delete instance of COM interface %s", cd->toChars());
+                goto Lerr;
             }
             break;
         }
@@ -9324,7 +9413,7 @@ Expression *DeleteExp::semantic(Scope *sc)
                     break;
             }
             error("cannot delete type %s", e1->type->toChars());
-            return new ErrorExp();
+            goto Lerr;
     }
 
     if (e1->op == TOKindex)
@@ -9332,10 +9421,22 @@ Expression *DeleteExp::semantic(Scope *sc)
         IndexExp *ae = (IndexExp *)(e1);
         Type *tb1 = ae->e1->type->toBasetype();
         if (tb1->ty == Taarray)
-            error("delete aa[key] deprecated, use aa.remove(key)");
+        {
+            error("use 'aa.remove(key)' instead of 'delete aa[key]'");
+            goto Lerr;
+        }
+    }
+
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    {
+        error("cannot use 'delete' in @nogc function %s", sc->func->toChars());
+        goto Lerr;
     }
 
     return this;
+
+Lerr:
+    return new ErrorExp();
 }
 
 
@@ -10332,6 +10433,12 @@ Expression *IndexExp::semantic(Scope *sc)
                 e2 = e2->implicitCastTo(sc, taa->index);        // type checking
             }
             type = taa->next;
+            if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+            {
+                error("indexing an associative array in @nogc function %s may cause gc allocation",
+                    sc->func->toChars());
+                goto Lerror;
+            }
             break;
         }
 
@@ -10385,6 +10492,7 @@ Expression *IndexExp::semantic(Scope *sc)
             error("%s must be an array or pointer type, not %s",
                 e1->toChars(), e1->type->toChars());
         case Terror:
+        Lerror:
             return new ErrorExp();
     }
 
@@ -10975,6 +11083,8 @@ Expression *AssignExp::semantic(Scope *sc)
                             return new ErrorExp();
                         }
 
+                        e1x = e1x->copy();
+                        e1x->type = e1x->type->mutableOf();
                         Expression *e = new DotVarExp(loc, e1x, sd->cpctor, 0);
                         e = new CallExp(loc, e, e2x);
                         return e->semantic(sc);
@@ -11151,30 +11261,51 @@ Expression *AssignExp::semantic(Scope *sc)
     }
     else if (t1->ty == Tsarray)
     {
+        // SliceExp cannot have static array type without context inference.
+        assert(e1->op != TOKslice);
+
         Expression *e1x = e1;
         Expression *e2x = e2;
         Type *t2 = e2x->type->toBasetype();
 
-        if (op == TOKconstruct)
+        if (e2x->implicitConvTo(e1x->type))
         {
-            if (e2x->implicitConvTo(e1x->type))
+            if (op != TOKblit &&
+                (e2x->op == TOKslice && ((UnaExp *)e2x)->e1->isLvalue() ||
+                 e2x->op == TOKcast  && ((UnaExp *)e2x)->e1->isLvalue() ||
+                 e2x->op != TOKslice && e2x->isLvalue()))
             {
-                if (op != TOKblit &&
-                    (e2x->op == TOKslice && ((UnaExp *)e2x)->e1->isLvalue() ||
-                     e2x->op == TOKcast  && ((UnaExp *)e2x)->e1->isLvalue() ||
-                     e2x->op != TOKslice && e2x->isLvalue()))
+                e1x->checkPostblit(sc, t1);
+            }
+        }
+        else
+        {
+            if (e2x->implicitConvTo(t1->nextOf()->arrayOf()) > MATCHnomatch)
+            {
+                uinteger_t dim1 = ((TypeSArray *)t1)->dim->toInteger();
+                uinteger_t dim2 = dim1;
+                if (e2x->op == TOKarrayliteral)
                 {
-                    e1x->checkPostblit(sc, t1);
+                    ArrayLiteralExp *ale = (ArrayLiteralExp *)e2x;
+                    dim2 = ale->elements ? ale->elements->dim : 0;
+                }
+                else if (e2x->op == TOKslice)
+                {
+                    Type *tx = toStaticArrayType((SliceExp *)e2x);
+                    if (tx)
+                        dim2 = ((TypeSArray *)tx)->dim->toInteger();
+                }
+                if (dim1 != dim2)
+                {
+                    error("mismatched array lengths, %d and %d", (int)dim1, (int)dim2);
+                    return new ErrorExp();
                 }
             }
-            else
-            {
-                /* Block/element-wise initializing
-                 * Rewrite:
-                 *  sa = e;     as: sa[] = e;
-                 *  sa = da;    as: sa[] = da;
-                 */
 
+            // May be block or element-wise assignment, so
+            // convert e1 to e1[]
+            if (op != TOKassign)
+            {
                 // If multidimensional static array, treat as one large array
                 dinteger_t dim = ((TypeSArray *)t1)->dim->toInteger();
                 Type *t = t1;
@@ -11186,65 +11317,9 @@ Expression *AssignExp::semantic(Scope *sc)
                     dim *= ((TypeSArray *)t)->dim->toInteger();
                     e1x->type = t->nextOf()->sarrayOf(dim);
                 }
-
-                // Convert e1 to e1[]
-                e1x = new SliceExp(e1x->loc, e1x, NULL, NULL);
-                e1x = e1x->semantic(sc);
             }
-        }
-        else if (op == TOKassign)
-        {
-            if (e2x->implicitConvTo(e1x->type))
-            {
-                if (op != TOKblit &&
-                    (e2x->op == TOKslice && ((UnaExp *)e2x)->e1->isLvalue() ||
-                     e2x->op == TOKcast  && ((UnaExp *)e2x)->e1->isLvalue() ||
-                     e2x->op != TOKslice && e2x->isLvalue()))
-                {
-                    e1x->checkPostblit(sc, t1);
-                }
-            }
-            else
-            {
-                /* Block/element-wise assignment
-                 * Rewrite:
-                 *  sa = e;     as: sa[] = e;
-                 *  sa = da;    as: sa[] = da;
-                 */
-
-                // Convert e1 to e1[]
-                e1x = new SliceExp(e1x->loc, e1x, NULL, NULL);
-                e1x = e1x->semantic(sc);
-            }
-        }
-        else
-        {
-            assert(op == TOKblit);
-
-            if (e2x->implicitConvTo(e1x->type))
-            {
-            }
-            else
-            {
-                /* Internal handling for the default initialization
-                 * of multi-dimensional static array:
-                 *  T[2][3] sa; // = T.init; if T is zero-init
-                 */
-                // Treat e1 as one large array
-                dinteger_t dim = ((TypeSArray *)t1)->dim->toInteger();
-                Type *t = t1;
-                while (1)
-                {
-                    t = t->nextOf()->toBasetype();
-                    if (t->ty != Tsarray)
-                        break;
-                    dim *= ((TypeSArray *)t)->dim->toInteger();
-                    e1x->type = t->nextOf()->sarrayOf(dim);
-                }
-
-                e1x = new SliceExp(loc, e1x, NULL, NULL);
-                e1x = e1x->semantic(sc);
-            }
+            e1x = new SliceExp(e1x->loc, e1x, NULL, NULL);
+            e1x = e1x->semantic(sc);
         }
         if (e1x->op == TOKerror)
             return e1x;
@@ -11270,6 +11345,13 @@ Expression *AssignExp::semantic(Scope *sc)
         Type *tn = ale->e1->type->toBasetype()->nextOf();
         checkDefCtor(ale->loc, tn);
         semanticTypeInfo(sc, tn);
+
+        if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+        {
+            error("Setting 'length' in @nogc function %s may cause GC allocation",
+                sc->func->toChars());
+            return new ErrorExp();
+        }
     }
     else if (e1->op == TOKslice)
     {
@@ -11330,38 +11412,30 @@ Expression *AssignExp::semantic(Scope *sc)
              t2->nextOf()->implicitConvTo(t1->nextOf()))
     {
         // Check element-wise assignment.
-        SliceExp *se1 = (SliceExp *)e1;
-        Type *tx1 = se1->e1->type->toBasetype();
 
         /* If assigned elements number is known at compile time,
          * check the mismatch.
          */
-        if (se1->lwr == NULL && tx1->ty == Tsarray)
+        SliceExp *se1 = (SliceExp *)e1;
+        TypeSArray *tsa1 = (TypeSArray *)toStaticArrayType(se1);
+        TypeSArray *tsa2 = NULL;
+        if (e2->op == TOKarrayliteral)
+            tsa2 = (TypeSArray *)t2->nextOf()->sarrayOf(((ArrayLiteralExp *)e2)->elements->dim);
+        else if (e2->op == TOKslice)
+            tsa2 = (TypeSArray *)toStaticArrayType((SliceExp *)e2);
+        else if (t2->ty == Tsarray)
+            tsa2 = (TypeSArray *)t2;
+        if (tsa1 && tsa2)
         {
-            Type *tx2 = t2;
-            if (e2->op == TOKslice && ((SliceExp *)e2)->lwr == NULL)
-                tx2 = ((SliceExp *)e2)->e1->type->toBasetype();
-            uinteger_t dim1, dim2;
-            if (e2->op == TOKarrayliteral)
+            uinteger_t dim1 = tsa1->dim->toInteger();
+            uinteger_t dim2 = tsa2->dim->toInteger();
+            if (dim1 != dim2)
             {
-                dim2 = ((ArrayLiteralExp *)e2)->elements->dim;
-                goto Lsa;
-            }
-            if (tx2->ty == Tsarray)
-            {
-                // sa1[] = sa2[];
-                // sa1[] = sa2;
-                // sa1[] = [ ... ];
-                dim2 = ((TypeSArray *)tx2)->dim->toInteger();
-            Lsa:
-                dim1 = ((TypeSArray *)tx1)->dim->toInteger();
-                if (dim1 != dim2)
-                {
-                    error("mismatched array lengths, %d and %d", (int)dim1, (int)dim2);
-                    return new ErrorExp();
-                }
+                error("mismatched array lengths, %d and %d", (int)dim1, (int)dim2);
+                return new ErrorExp();
             }
         }
+
         if (op != TOKblit &&
             (e2->op == TOKslice && ((UnaExp *)e2)->e1->isLvalue() ||
              e2->op == TOKcast  && ((UnaExp *)e2)->e1->isLvalue() ||
@@ -11369,6 +11443,7 @@ Expression *AssignExp::semantic(Scope *sc)
         {
             e1->checkPostblit(sc, t1->nextOf());
         }
+
         if (0 && global.params.warnings && !global.gag && op == TOKassign &&
             e2->op != TOKslice && e2->op != TOKassign &&
             e2->op != TOKarrayliteral && e2->op != TOKstring &&
@@ -11426,7 +11501,10 @@ Expression *AssignExp::semantic(Scope *sc)
             warning("explicit %s assignment %s = (%s)[] is better than %s = %s",
                 atypestr, e1str, e2str, e1str, e2str);
         }
-        e2 = e2->implicitCastTo(sc, e1->type);
+        if (op == TOKblit)
+            e2 = e2->castTo(sc, e1->type);
+        else
+            e2 = e2->implicitCastTo(sc, e1->type);
     }
     if (e2->op == TOKerror)
         return new ErrorExp();
@@ -11564,6 +11642,12 @@ Expression *CatAssignExp::semantic(Scope *sc)
     Expression *e = op_overload(sc);
     if (e)
         return e;
+
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    {
+        error("cannot use operator ~= in @nogc function %s", sc->func->toChars());
+        return new ErrorExp();
+    }
 
     if (e1->op == TOKslice)
     {
@@ -12012,6 +12096,12 @@ Expression *CatExp::semantic(Scope *sc)
     Expression *e = op_overload(sc);
     if (e)
         return e;
+
+    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    {
+        error("cannot use operator ~ in @nogc function %s", sc->func->toChars());
+        return new ErrorExp();
+    }
 
     Type *tb1 = e1->type->toBasetype();
     Type *tb2 = e2->type->toBasetype();
