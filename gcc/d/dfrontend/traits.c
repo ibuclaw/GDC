@@ -35,6 +35,7 @@
 #include "attrib.h"
 #include "hdrgen.h"
 #include "parse.h"
+#include "speller.h"
 
 #define LOGSEMANTIC     0
 
@@ -198,6 +199,88 @@ Expression *isDeclX(TraitsExp *e, bool (*fp)(Declaration *d))
     result = 1;
 Lfalse:
     return new IntegerExp(e->loc, result, Type::tbool);
+}
+
+// callback for TypeFunction::attributesApply
+struct PushAttributes
+{
+    Expressions *mods;
+
+    static int fp(void *param, const char *str)
+    {
+        PushAttributes *p = (PushAttributes *)param;
+        p->mods->push(new StringExp(Loc(), (char *)str));
+        return 0;
+    }
+};
+
+const char* traits[] = {
+    "isAbstractClass",
+    "isArithmetic",
+    "isAssociativeArray",
+    "isFinalClass",
+    "isPOD",
+    "isNested",
+    "isFloating",
+    "isIntegral",
+    "isScalar",
+    "isStaticArray",
+    "isUnsigned",
+    "isVirtualFunction",
+    "isVirtualMethod",
+    "isAbstractFunction",
+    "isFinalFunction",
+    "isOverrideFunction",
+    "isStaticFunction",
+    "isRef",
+    "isOut",
+    "isLazy",
+    "hasMember",
+    "identifier",
+    "getProtection",
+    "parent",
+    "getMember",
+    "getOverloads",
+    "getVirtualFunctions",
+    "getVirtualMethods",
+    "classInstanceSize",
+    "allMembers",
+    "derivedMembers",
+    "isSame",
+    "compiles",
+    "parameters",
+    "getAliasThis",
+    "getAttributes",
+    "getFunctionAttributes",
+    "getUnitTests",
+    "getVirtualIndex",
+    NULL
+};
+
+StringTable traitsStringTable;
+
+void initTraitsStringTable()
+{
+    traitsStringTable._init();
+
+    for (size_t idx = 0; ; idx++)
+    {
+        const char *s = traits[idx];
+        if (!s) break;
+        StringValue *sv = traitsStringTable.insert(s, strlen(s));
+        sv->ptrvalue = (void *)traits[idx];
+    }
+}
+
+void *trait_search_fp(void *arg, const char *seed)
+{
+    //printf("trait_search_fp('%s')\n", seed);
+    size_t len = strlen(seed);
+    if (!len)
+        return NULL;
+
+    StringValue *sv = traitsStringTable.lookup(seed, len);
+    return sv ? (void*)sv->ptrvalue : NULL;
 }
 
 Expression *semanticTraits(TraitsExp *e, Scope *sc)
@@ -604,6 +687,65 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         TupleExp *tup = new TupleExp(e->loc, udad ? udad->getAttributes() : new Expressions());
         return tup->semantic(sc);
     }
+    else if (e->ident == Id::getFunctionAttributes)
+    {
+        /// extract all function attributes as a tuple (const/shared/inout/pure/nothrow/etc) except UDAs.
+
+        if (dim != 1)
+            goto Ldimerror;
+        RootObject *o = (*e->args)[0];
+        Dsymbol *s = getDsymbol(o);
+        Type *t = isType(o);
+        TypeFunction *tf = NULL;
+        FuncDeclaration *fd = NULL;
+        Type *type = NULL;
+
+        if (s)
+        {
+            if (FuncDeclaration *sfd = s->isFuncDeclaration())
+            {
+                fd = sfd;
+                type = fd->type;
+            }
+            else if (VarDeclaration *vd = s->isVarDeclaration())
+                type = vd->type;
+        }
+        else if (t)
+        {
+            type = t;
+        }
+
+        if (type)
+        {
+            if (type->ty == Tfunction)
+                tf = (TypeFunction *)type;
+            else if (type->ty == Tdelegate)
+                tf = (TypeFunction *)type->nextOf();
+            else if (type->ty == Tpointer && type->nextOf()->ty == Tfunction)
+                tf = (TypeFunction *)type->nextOf();
+        }
+
+        if (!tf)
+        {
+            e->error("first argument is not a function");
+            goto Lfalse;
+        }
+
+        Expressions *mods = new Expressions();
+
+        PushAttributes pa;
+        pa.mods = mods;
+
+        if (fd)
+            fd->type->modifiersApply(&pa, &PushAttributes::fp);
+        else if (tf)
+            tf->modifiersApply(&pa, &PushAttributes::fp);
+
+        tf->attributesApply(&pa, &PushAttributes::fp, TRUSTformatSystem);
+
+        TupleExp *tup = new TupleExp(e->loc, mods);
+        return tup->semantic(sc);
+    }
     else if (e->ident == Id::allMembers || e->ident == Id::derivedMembers)
     {
         if (dim != 1)
@@ -880,7 +1022,11 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
     }
     else
     {
-        e->error("unrecognized trait %s", e->ident->toChars());
+        if (const char *sub = (const char *)speller(e->ident->toChars(), &trait_search_fp, NULL, idchars))
+            e->error("unrecognized trait '%s', did you mean '%s'?", e->ident->toChars(), sub);
+        else
+            e->error("unrecognized trait '%s'", e->ident->toChars());
+
         goto Lfalse;
     }
 

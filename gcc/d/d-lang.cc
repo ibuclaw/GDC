@@ -242,6 +242,7 @@ d_init (void)
   Module::init();
   Expression::init();
   initPrecedence();
+  initTraitsStringTable();
 
   d_backend_init();
 

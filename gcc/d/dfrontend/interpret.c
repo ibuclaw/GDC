@@ -2818,7 +2818,7 @@ public:
     #endif
         if (e->ownedByCtfe) // We've already interpreted all the elements
         {
-            result = copyLiteral(e);
+            result = e;
             return;
         }
         for (size_t i = 0; i < e->keys->dim; i++)
@@ -6739,7 +6739,7 @@ Expression *interpret_aaApply(InterState *istate, Expression *aa, Expression *de
             return eresult;
 
         assert(eresult->op == TOKint64);
-        if (((IntegerExp *)eresult)->value != 0)
+        if (((IntegerExp *)eresult)->getInteger() != 0)
             return eresult;
     }
     return eresult;
@@ -6832,7 +6832,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                     {
                         Expression * r = (*ale->elements)[indx];
                         assert(r->op == TOKint64);
-                        utf8_t x = (utf8_t)(((IntegerExp *)r)->value);
+                        utf8_t x = (utf8_t)(((IntegerExp *)r)->getInteger());
                         if ( (x & 0xC0) != 0x80)
                             break;
                         ++buflen;
@@ -6844,7 +6844,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                 {
                     Expression * r = (*ale->elements)[indx + i];
                     assert(r->op == TOKint64);
-                    utf8buf[i] = (utf8_t)(((IntegerExp *)r)->value);
+                    utf8buf[i] = (utf8_t)(((IntegerExp *)r)->getInteger());
                 }
                 n = 0;
                 errmsg = utf_decodeChar(&utf8buf[0], buflen, &n, &rawvalue);
@@ -6856,7 +6856,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                     buflen = 1;
                     Expression * r = (*ale->elements)[indx];
                     assert(r->op == TOKint64);
-                    unsigned short x = (unsigned short)(((IntegerExp *)r)->value);
+                    unsigned short x = (unsigned short)(((IntegerExp *)r)->getInteger());
                     if (indx > 0 && x >= 0xDC00 && x <= 0xDFFF)
                     {
                         --indx;
@@ -6869,7 +6869,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                 {
                     Expression * r = (*ale->elements)[indx + i];
                     assert(r->op == TOKint64);
-                    utf16buf[i] = (unsigned short)(((IntegerExp *)r)->value);
+                    utf16buf[i] = (unsigned short)(((IntegerExp *)r)->getInteger());
                 }
                 n = 0;
                 errmsg = utf_decodeWchar(&utf16buf[0], buflen, &n, &rawvalue);
@@ -6881,7 +6881,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
 
                     Expression * r = (*ale->elements)[indx];
                     assert(r->op == TOKint64);
-                    rawvalue = (dchar_t)((IntegerExp *)r)->value;
+                    rawvalue = (dchar_t)((IntegerExp *)r)->getInteger();
                     n = 1;
                 }
                 break;
@@ -6993,7 +6993,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
             if (exceptionOrCantInterpret(eresult))
                 return eresult;
             assert(eresult->op == TOKint64);
-            if (((IntegerExp *)eresult)->value != 0)
+            if (((IntegerExp *)eresult)->getInteger() != 0)
                 return eresult;
         }
     }

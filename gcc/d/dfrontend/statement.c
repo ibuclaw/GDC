@@ -1932,7 +1932,7 @@ Lagain:
             if (op == TOKforeach_reverse)
                 key->init = new ExpInitializer(loc, tmp_length);
             else
-                key->init = new ExpInitializer(loc, new IntegerExp(loc, 0, NULL));
+                key->init = new ExpInitializer(loc, new IntegerExp(loc, 0, key->type));
 
             Statements *cs = new Statements();
             cs->push(new ExpStatement(loc, tmp));
@@ -1954,7 +1954,7 @@ Lagain:
             Expression *increment = NULL;
             if (op == TOKforeach)
                 // key += 1
-                increment = new AddAssignExp(loc, new VarExp(loc, key), new IntegerExp(loc, 1, NULL));
+                increment = new AddAssignExp(loc, new VarExp(loc, key), new IntegerExp(loc, 1, key->type));
 
             // T value = tmp[key];
             value->init = new ExpInitializer(loc, new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, key)));
@@ -3525,7 +3525,8 @@ Statement *ReturnStatement::semantic(Scope *sc)
 
     // main() returns 0, even if it returns void
     if (!exp && (!tbret || tbret->ty == Tvoid) && fd->isMain())
-    {   implicit0 = 1;
+    {
+        implicit0 = 1;
         exp = new IntegerExp(0);
     }
 
@@ -3751,7 +3752,10 @@ Statement *ReturnStatement::semantic(Scope *sc)
             sc->fes->cases->push(s);
 
             // Construct: { vresult = exp; return cases->dim + 1; }
-            exp = new ConstructExp(loc, new VarExp(Loc(), fd->vresult), exp);
+            if (tf->isref)
+                exp = new ConstructExp(loc, new VarExp(Loc(), fd->vresult), exp);
+            else
+                exp = new BlitExp(loc, new VarExp(Loc(), fd->vresult), exp);
             exp = exp->semantic(sc);
             Statement *s1 = new ExpStatement(loc, exp);
             Statement *s2 = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->dim + 1));
@@ -3780,7 +3784,10 @@ Statement *ReturnStatement::semantic(Scope *sc)
             VarExp *v = new VarExp(Loc(), fd->vresult);
 
             assert(eorg);
-            exp = new ConstructExp(loc, v, eorg);
+            if (tf->isref)
+                exp = new ConstructExp(loc, v, eorg);
+            else
+                exp = new BlitExp(loc, v, eorg);
             exp = exp->semantic(sc);
         }
     }
@@ -3814,7 +3821,8 @@ Statement *ReturnStatement::semantic(Scope *sc)
 
         gs->label = fd->returnLabel;
         if (exp)
-        {   /* Replace: return exp;
+        {
+            /* Replace: return exp;
              * with:    exp; goto returnLabel;
              */
             Statement *s = new ExpStatement(Loc(), exp);

@@ -210,6 +210,12 @@ public:
     void checkNogc(Scope *sc, FuncDeclaration *f);
     bool checkPostblit(Scope *sc, Type *t);
     virtual int checkModifiable(Scope *sc, int flag = 0);
+
+    // check whether the expression allows RMW operations, error with rmw operator diagnostic if not.
+    // exp is the RHS expression, or NULL if ++/-- is used (for diagnostics)
+    Expression *readModifyWrite(TOK rmwOp, Expression *exp = NULL);
+    virtual bool checkReadModifyWrite();  // return true if the expression allows RMW operations.
+
     virtual Expression *checkToBoolean(Scope *sc);
     virtual Expression *addDtorHook(Scope *sc);
     Expression *checkToPointer();
@@ -248,9 +254,10 @@ public:
 
 class IntegerExp : public Expression
 {
-public:
+private:
     dinteger_t value;
 
+public:
     IntegerExp(Loc loc, dinteger_t value, Type *type);
     IntegerExp(dinteger_t value);
     bool equals(RootObject *o);
@@ -266,6 +273,11 @@ public:
     elem *toElem(IRState *irs);
     dt_t **toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
+    dinteger_t getInteger() { return value; }
+    void setInteger(dinteger_t value);
+
+private:
+    void normalize();
 };
 
 class ErrorExp : public Expression
@@ -673,6 +685,7 @@ public:
     void checkEscape();
     void checkEscapeRef();
     int checkModifiable(Scope *sc, int flag);
+    bool checkReadModifyWrite();
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
@@ -909,6 +922,7 @@ public:
     DotVarExp(Loc loc, Expression *e, Declaration *var, bool hasOverloads = false);
     Expression *semantic(Scope *sc);
     int checkModifiable(Scope *sc, int flag);
+    bool checkReadModifyWrite();
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
@@ -1245,6 +1259,13 @@ class ConstructExp : public AssignExp
 {
 public:
     ConstructExp(Loc loc, Expression *e1, Expression *e2);
+    void accept(Visitor *v) { v->visit(this); }
+};
+
+class BlitExp : public AssignExp
+{
+public:
+    BlitExp(Loc loc, Expression *e1, Expression *e2);
     void accept(Visitor *v) { v->visit(this); }
 };
 

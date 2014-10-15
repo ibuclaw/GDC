@@ -43,6 +43,9 @@ extern Expression *d_gcc_paint_type (Expression *, Type *);
 FuncDeclaration *search_toHash(StructDeclaration *);
 FuncDeclaration *search_toString(StructDeclaration *);
 
+// Used in d-lang.cc
+void initTraitsStringTable();
+
 #endif /* GCC_SAFE_DMD */
 
 #endif

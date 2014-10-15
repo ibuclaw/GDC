@@ -1108,7 +1108,7 @@ int expandAliasThisTuples(Expressions *exps, size_t starti)
     return -1;
 }
 
-Expressions *arrayExpressionToCommonType(Scope *sc, Expressions *exps, Type **pt)
+bool arrayExpressionToCommonType(Scope *sc, Expressions *exps, Type **pt)
 {
     /* The type is determined by applying ?: to each pair.
      */
@@ -1131,58 +1131,53 @@ Expressions *arrayExpressionToCommonType(Scope *sc, Expressions *exps, Type **pt
         if (!e->type)
         {
             e->error("%s has no value", e->toChars());
-            e = new ErrorExp();
+            t0 = Type::terror;
+            continue;
         }
 
         e = e->isLvalue() ? callCpCtor(sc, e) : valueNoDtor(e);
 
-        if (t0)
+        if (t0 && !t0->equals(e->type))
         {
-            if (t0 != e->type)
+            /* This applies ?: to merge the types. It's backwards;
+             * ?: should call this function to merge types.
+             */
+            condexp.type = NULL;
+            condexp.e1 = e0;
+            condexp.e2 = e;
+            condexp.loc = e->loc;
+            Expression *ex = condexp.semantic(sc);
+            if (ex->op == TOKerror)
+                e = ex;
+            else
             {
-                /* This applies ?: to merge the types. It's backwards;
-                 * ?: should call this function to merge types.
-                 */
-                condexp.type = NULL;
-                condexp.e1 = e0;
-                condexp.e2 = e;
-                condexp.loc = e->loc;
-                condexp.semantic(sc);
                 (*exps)[j0] = condexp.e1;
-                if (condexp.e1->op == TOKfunction &&
-                    condexp.e2->op == TOKfunction)
-                    t0 = condexp.e2->type;
-                else
-                    t0 = condexp.type;
                 e = condexp.e2;
-                j0 = i;
-                e0 = e;
             }
         }
-        else
-        {
-            j0 = i;
-            e0 = e;
-            t0 = e->type;
-        }
-        (*exps)[i] = e;
+        j0 = i;
+        e0 = e;
+        t0 = e->type;
+        if (e->op != TOKerror)
+            (*exps)[i] = e;
     }
 
-    if (t0)
+    if (!t0)
+        t0 = Type::tvoid;               // [] is typed as void[]
+    else if (t0->ty != Terror)
     {
         for (size_t i = 0; i < exps->dim; i++)
-        {   Expression *e = (*exps)[i];
+        {
+            Expression *e = (*exps)[i];
             e = e->implicitCastTo(sc, t0);
+            assert(e->op != TOKerror);
             (*exps)[i] = e;
         }
     }
-    else
-        t0 = Type::tvoid;               // [] is typed as void[]
     if (pt)
         *pt = t0;
 
-    // Eventually, we want to make this copy-on-write
-    return exps;
+    return (t0 == Type::terror);
 }
 
 /****************************************
@@ -2132,6 +2127,11 @@ int Expression::checkModifiable(Scope *sc, int flag)
     return type ? 1 : 0;    // default modifiable
 }
 
+bool Expression::checkReadModifyWrite()
+{
+    return !type->isShared();
+}
+
 Expression *Expression::modifiableLvalue(Scope *sc, Expression *e)
 {
     //printf("Expression::modifiableLvalue() %s, type = %s\n", toChars(), type->toChars());
@@ -2171,6 +2171,36 @@ Expression *Expression::modifiableLvalue(Scope *sc, Expression *e)
 
 Lerror:
     return new ErrorExp();
+}
+
+Expression *Expression::readModifyWrite(TOK rmwOp, Expression *ex)
+{
+    //printf("Expression::readModifyWrite() %s %s", toChars(), ex ? ex->toChars() : "");
+    if (checkReadModifyWrite())
+        return this;
+
+    // atomicOp uses opAssign (+=/-=) rather than opOp (++/--) for the CT string literal.
+    switch (rmwOp)
+    {
+        case TOKplusplus: case TOKpreplusplus:
+            rmwOp = TOKaddass;
+            break;
+
+        case TOKminusminus: case TOKpreminusminus:
+            rmwOp = TOKminass;
+            break;
+
+        default:
+            break;
+    }
+
+    deprecation("Read-modify-write operations are not allowed for shared variables. "
+                "Use core.atomic.atomicOp!\"%s\"(%s, %s) instead.",
+                Token::tochars[rmwOp], toChars(), ex ? ex->toChars() : "1");
+    return this;
+
+    // note: enable when deprecation becomes an error.
+    // return new ErrorExp();
 }
 
 
@@ -2236,8 +2266,7 @@ void Expression::checkDeprecated(Scope *sc, Dsymbol *s)
  */
 void Expression::checkPurity(Scope *sc, FuncDeclaration *f)
 {
-#if 1
-    if (sc->func && sc->func != f && !sc->intypeof && !(sc->flags & SCOPEdebug))
+    if (sc->func && sc->func != f && sc->intypeof != 1 && !(sc->flags & (SCOPEctfe | SCOPEdebug)))
     {
         /* Given:
          * void f()
@@ -2264,16 +2293,6 @@ void Expression::checkPurity(Scope *sc, FuncDeclaration *f)
                 return;
         }
 
-        // Find the closest pure parent of the called function
-        if (getFuncTemplateDecl(f) && !f->isNested() &&
-            f->parent->isTemplateInstance()->enclosing == NULL)
-        {   // The closest pure parent of instantiated non-nested template function is
-            // always itself.
-            if (!f->isPure() && outerfunc->setImpure() && !(sc->flags & SCOPEctfe))
-                error("pure function '%s' cannot call impure function '%s'",
-                    outerfunc->toPrettyChars(), f->toPrettyChars());
-            return;
-        }
         FuncDeclaration *calledparent = f;
         while ( calledparent->toParent2() &&
                !calledparent->isPureBypassingInference() &&
@@ -2284,44 +2303,15 @@ void Expression::checkPurity(Scope *sc, FuncDeclaration *f)
                 return;
         }
 
-        /* Both escape!allocator and escapeImpl!allocator are impure at [a],
-         * but they are nested template function that instantiated in test().
-         * Then calling them from [a] doesn't break purity.
-         * It's similar to normal impure nested function inside pure function.
-         *
-         *   auto escapeImpl(alias fun)() {
-         *     return fun();
-         *   }
-         *   auto escape(alias fun)() {
-         *     return escape!fun();
-         *   }
-         *   pure string test() {
-         *     char[] allocator() { return new char[1]; }  // impure
-         *     return escape!allocator();       // [a]
-         *   }
-         */
-        if (getFuncTemplateDecl(outerfunc) &&
-            outerfunc->toParent2() == calledparent &&
-            f != calledparent)
-        {
-            return;
-        }
-
         // If the caller has a pure parent, then either the called func must be pure,
         // OR, they must have the same pure parent.
-        if (!f->isPure() && calledparent != outerfunc &&
-            !(sc->flags & SCOPEctfe))
+        if (!f->isPure() && calledparent != outerfunc)
         {
             if (outerfunc->setImpure())
                 error("pure function '%s' cannot call impure function '%s'",
                     outerfunc->toPrettyChars(), f->toPrettyChars());
         }
     }
-#else
-    if (sc->func && sc->func->isPure() && !sc->intypeof && !f->isPure())
-        error("pure function '%s' cannot call impure function '%s'",
-            sc->func->toPrettyChars(), f->toPrettyChars());
-#endif
 }
 
 /*******************************************
@@ -2336,7 +2326,7 @@ void Expression::checkPurity(Scope *sc, VarDeclaration *v)
      */
     if (!sc->func)
         return;
-    if (sc->intypeof)
+    if (sc->intypeof == 1)
         return; // allow violations inside typeof(expression)
     if (sc->flags & SCOPEdebug)
         return; // allow violations inside debug conditionals
@@ -2436,7 +2426,7 @@ void Expression::checkPurity(Scope *sc, VarDeclaration *v)
 
 void Expression::checkSafety(Scope *sc, FuncDeclaration *f)
 {
-    if (sc->func && sc->func != f && !sc->intypeof &&
+    if (sc->func && sc->func != f && sc->intypeof != 1 &&
         !(sc->flags & SCOPEctfe) &&
         !f->isSafe() && !f->isTrusted())
     {
@@ -2453,7 +2443,7 @@ void Expression::checkSafety(Scope *sc, FuncDeclaration *f)
 
 void Expression::checkNogc(Scope *sc, FuncDeclaration *f)
 {
-    if (sc->func && sc->func != f && !sc->intypeof &&
+    if (sc->func && sc->func != f && sc->intypeof != 1 &&
         !(sc->flags & SCOPEctfe) &&
         !f->isNogc())
     {
@@ -2617,7 +2607,8 @@ IntegerExp::IntegerExp(Loc loc, dinteger_t value, Type *type)
         : Expression(loc, TOKint64, sizeof(IntegerExp))
 {
     //printf("IntegerExp(value = %lld, type = '%s')\n", value, type ? type->toChars() : "");
-    if (type && !type->isscalar())
+    assert(type);
+    if (!type->isscalar())
     {
         //printf("%s, loc = %d\n", toChars(), loc.linnum);
         if (type->ty != Terror)
@@ -2625,14 +2616,14 @@ IntegerExp::IntegerExp(Loc loc, dinteger_t value, Type *type)
         type = Type::terror;
     }
     this->type = type;
-    this->value = value;
+    setInteger(value);
 }
 
 IntegerExp::IntegerExp(dinteger_t value)
         : Expression(Loc(), TOKint64, sizeof(IntegerExp))
 {
     this->type = Type::tint32;
-    this->value = value;
+    this->value = (d_int32) value;
 }
 
 bool IntegerExp::equals(RootObject *o)
@@ -2656,72 +2647,53 @@ char *IntegerExp::toChars()
     return Expression::toChars();
 }
 
-dinteger_t IntegerExp::toInteger()
-{   Type *t;
+void IntegerExp::setInteger(dinteger_t value)
+{
+    this->value = value;
+    normalize();
+}
 
-    t = type;
-    while (t)
+void IntegerExp::normalize()
+{
+    /* 'Normalize' the value of the integer to be in range of the type
+     */
+    switch (type->toBasetype()->ty)
     {
-        switch (t->ty)
-        {
-            case Tbool:         value = (value != 0);           break;
-            case Tint8:         value = (d_int8)  value;        break;
-            case Tchar:
-            case Tuns8:         value = (d_uns8)  value;        break;
-            case Tint16:        value = (d_int16) value;        break;
-            case Twchar:
-            case Tuns16:        value = (d_uns16) value;        break;
-            case Tint32:        value = (d_int32) value;        break;
-            case Tdchar:
-            case Tuns32:        value = (d_uns32) value;        break;
-            case Tint64:        value = (d_int64) value;        break;
-            case Tuns64:        value = (d_uns64) value;        break;
-            case Tpointer:
-                if (Target::ptrsize == 4)
-                    value = (d_uns32) value;
-                else if (Target::ptrsize == 8)
-                    value = (d_uns64) value;
-                else
-                    assert(0);
-                break;
-
-            case Tenum:
-            {
-                TypeEnum *te = (TypeEnum *)t;
-                t = te->sym->memtype;
-                continue;
-            }
-
-            case Ttypedef:
-            {
-                TypeTypedef *tt = (TypeTypedef *)t;
-                t = tt->sym->basetype;
-                continue;
-            }
-
-            default:
-                /* This can happen if errors, such as
-                 * the type is painted on like in fromConstInitializer().
-                 */
-                if (!global.errors)
-                {
-                    printf("e = %p, ty = %d\n", this, type->ty);
-                    type->print();
-                    assert(0);
-                }
-                break;
-        }
-        break;
+        case Tbool:         value = (value != 0);           break;
+        case Tint8:         value = (d_int8)  value;        break;
+        case Tchar:
+        case Tuns8:         value = (d_uns8)  value;        break;
+        case Tint16:        value = (d_int16) value;        break;
+        case Twchar:
+        case Tuns16:        value = (d_uns16) value;        break;
+        case Tint32:        value = (d_int32) value;        break;
+        case Tdchar:
+        case Tuns32:        value = (d_uns32) value;        break;
+        case Tint64:        value = (d_int64) value;        break;
+        case Tuns64:        value = (d_uns64) value;        break;
+        case Tpointer:
+            if (Target::ptrsize == 4)
+                value = (d_uns32) value;
+            else if (Target::ptrsize == 8)
+                value = (d_uns64) value;
+            else
+                assert(0);
+            break;
+        default:
+            break;
     }
+}
+
+dinteger_t IntegerExp::toInteger()
+{
+    normalize();   // necessary until we fix all the paints of 'type'
     return value;
 }
 
 real_t IntegerExp::toReal()
 {
-    Type *t;
-
-    toInteger();
-    t = type->toBasetype();
+    normalize();   // necessary until we fix all the paints of 'type'
+    Type *t = type->toBasetype();
     if (t->ty == Tuns64)
         return ldouble((d_uns64)value);
     else
@@ -2746,23 +2718,10 @@ int IntegerExp::isBool(int result)
 
 Expression *IntegerExp::semantic(Scope *sc)
 {
-    if (!type)
-    {
-        // Determine what the type of this number is
-        dinteger_t number = value;
-
-        if (number & 0x8000000000000000LL)
-            type = Type::tuns64;
-        else if (number & 0xFFFFFFFF80000000LL)
-            type = Type::tint64;
-        else
-            type = Type::tint32;
-    }
-    else
-    {
-        if (!type->deco)
-            type = type->semantic(loc, sc);
-    }
+    assert(type && type->deco);
+    if (type->ty == Terror)
+        return new ErrorExp();
+    normalize();
     return this;
 }
 
@@ -3311,7 +3270,8 @@ Lagain:
 
         if (!f->type->deco)
         {
-            error("forward reference to %s", toChars());
+            const char *trailMsg = f->inferRetType ? "inferred return type of function call " : "";
+            error("forward reference to %s'%s'", trailMsg, toChars());
             return new ErrorExp();
         }
         FuncDeclaration *fd = s->isFuncDeclaration();
@@ -4077,7 +4037,8 @@ Expression *ArrayLiteralExp::semantic(Scope *sc)
     expandTuples(elements);
 
     Type *t0;
-    elements = arrayExpressionToCommonType(sc, elements, &t0);
+    if (arrayExpressionToCommonType(sc, elements, &t0))
+        return new ErrorExp();
 
     type = t0->arrayOf();
     //type = new TypeSArray(t0, new IntegerExp(elements->dim));
@@ -4093,7 +4054,7 @@ Expression *ArrayLiteralExp::semantic(Scope *sc)
 
     semanticTypeInfo(sc, t0);
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) &&
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) &&
         elements && type->toBasetype()->ty == Tarray)
     {
         for (size_t i = 0; i < elements->dim; i++)
@@ -4239,13 +4200,15 @@ Expression *AssocArrayLiteralExp::semantic(Scope *sc)
 
     Type *tkey = NULL;
     Type *tvalue = NULL;
-    keys = arrayExpressionToCommonType(sc, keys, &tkey);
-    values = arrayExpressionToCommonType(sc, values, &tvalue);
+    err_keys = arrayExpressionToCommonType(sc, keys, &tkey);
+    err_vals = arrayExpressionToCommonType(sc, values, &tvalue);
+    if (err_keys || err_vals)
+        return new ErrorExp();
 
     if (tkey == Type::terror || tvalue == Type::terror)
         return new ErrorExp;
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && keys->dim && sc->func->setGC())
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && keys->dim && sc->func->setGC())
     {
         error("associative array literal in @nogc function %s may cause GC allocation", sc->func->toChars());
         return new ErrorExp;
@@ -4578,7 +4541,7 @@ Expression *TypeExp::semantic(Scope *sc)
     Type *t;
     Dsymbol *s;
 
-    type->resolve(loc, sc, &e, &t, &s);
+    type->resolve(loc, sc, &e, &t, &s, true);
     if (e)
     {
         //printf("e = %s %s\n", Token::toChars(e->op), e->toChars());
@@ -5181,7 +5144,7 @@ Lagain:
     //printf("NewExp:type '%s'\n", type->toChars());
     semanticTypeInfo(sc, type);
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe))
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe))
     {
         if (member && !member->isNogc() && sc->func->setGC())
         {
@@ -5450,6 +5413,12 @@ int VarExp::checkModifiable(Scope *sc, int flag)
     //printf("VarExp::checkModifiable %s", toChars());
     assert(type);
     return var->checkModify(loc, sc, type, NULL, flag);
+}
+
+bool VarExp::checkReadModifyWrite()
+{
+    //printf("VarExp::checkReadModifyWrite %s", toChars());
+    return (var->storage_class & STCshared) == 0;
 }
 
 Expression *VarExp::modifiableLvalue(Scope *sc, Expression *e)
@@ -6680,6 +6649,8 @@ Expression *BinAssignExp::semantic(Scope *sc)
     if (e)
         return e;
 
+    e1->readModifyWrite(op, e2);
+
     if (e1->op == TOKarraylength)
     {
         // arr.length op= e2;
@@ -7566,14 +7537,17 @@ int modifyFieldVar(Loc loc, Scope *sc, VarDeclaration *var, Expression *e1)
                     if (var->type->isMutable() && e1->type->isMutable())
                         result = false;
                     else
-                        ::error(loc, "multiple field %s initialization", var->toChars());
+                    {
+                        const char *modStr = !var->type->isMutable() ? MODtoChars(var->type->mod) : MODtoChars(e1->type->mod);
+                        ::error(loc, "%s field '%s' initialized multiple times", modStr, var->toChars());
+                    }
                 }
                 else if (sc->noctor || fi & CSXlabel)
                 {
                     if (!mustInit && var->type->isMutable() && e1->type->isMutable())
                         result = false;
                     else
-                        ::error(loc, "field %s initializing not allowed in loops or after labels", var->toChars());
+                        ::error(loc, "field '%s' initializing not allowed in loops or after labels", var->toChars());
                 }
                 sc->fieldinit[i] |= CSXthis_ctor;
             }
@@ -7599,6 +7573,12 @@ int DotVarExp::checkModifiable(Scope *sc, int flag)
 
     //printf("\te1 = %s\n", e1->toChars());
     return e1->checkModifiable(sc, flag);
+}
+
+bool DotVarExp::checkReadModifyWrite()
+{
+    //printf("DotVarExp::checkReadModifyWrite %s", toChars());
+    return (var->storage_class & STCshared) == 0;
 }
 
 Expression *DotVarExp::modifiableLvalue(Scope *sc, Expression *e)
@@ -8128,7 +8108,8 @@ Lagain:
     else
     {
         if (e1->op == TOKdot)
-        {   DotIdExp *die = (DotIdExp *)e1;
+        {
+            DotIdExp *die = (DotIdExp *)e1;
             e1 = die->semantic(sc);
             /* Look for e1 having been rewritten to expr.opDispatch!(string)
              * We handle such earlier, so go back.
@@ -8157,8 +8138,8 @@ Lagain:
         /* Look for e1 being a lazy parameter
          */
         if (e1->op == TOKvar)
-        {   VarExp *ve = (VarExp *)e1;
-
+        {
+            VarExp *ve = (VarExp *)e1;
             if (ve->var->storage_class & STClazy)
             {
                 // lazy paramaters can be called without violating purity and safety
@@ -8172,7 +8153,8 @@ Lagain:
         }
 
         if (e1->op == TOKimport)
-        {   // Perhaps this should be moved to ScopeExp::semantic()
+        {
+            // Perhaps this should be moved to ScopeExp::semantic()
             ScopeExp *se = (ScopeExp *)e1;
             e1 = new DsymbolExp(loc, se->sds);
             e1 = e1->semantic(sc);
@@ -8195,16 +8177,23 @@ Lagain:
             }
 
             if (de->e2->op == TOKimport)
-            {   // This should *really* be moved to ScopeExp::semantic()
+            {
+                // This should *really* be moved to ScopeExp::semantic()
                 ScopeExp *se = (ScopeExp *)de->e2;
                 de->e2 = new DsymbolExp(loc, se->sds);
                 de->e2 = de->e2->semantic(sc);
             }
 
             if (de->e2->op == TOKtemplate)
-            {   TemplateExp *te = (TemplateExp *) de->e2;
+            {
+                TemplateExp *te = (TemplateExp *) de->e2;
                 e1 = new DotTemplateExp(loc,de->e1,te->td);
             }
+        }
+        else if (e1->op == TOKstar && e1->type->ty == Tfunction)
+        {
+            // Rewrite (*fp)(arguments) to fp(arguments)
+            e1 = ((PtrExp *)e1)->e1;
         }
     }
 
@@ -8684,23 +8673,26 @@ Lagain:
             checkNogc(sc, f);
             f->checkNestedReference(sc, loc);
         }
-        else if (sc->func && !(sc->flags & SCOPEctfe))
+        else if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe))
         {
+            bool err = false;
             if (!tf->purity && !(sc->flags & SCOPEdebug) && sc->func->setImpure())
             {
                 error("pure function '%s' cannot call impure %s '%s'", sc->func->toPrettyChars(), p, e1->toChars());
-                return new ErrorExp();
+                err = true;
             }
             if (!tf->isnogc && sc->func->setGC())
             {
                 error("@nogc function '%s' cannot call non-@nogc %s '%s'", sc->func->toPrettyChars(), p, e1->toChars());
-                return new ErrorExp();
+                err = true;
             }
             if (tf->trust <= TRUSTsystem && sc->func->setUnsafe())
             {
                 error("safe function '%s' cannot call system %s '%s'", sc->func->toPrettyChars(), p, e1->toChars());
-                return new ErrorExp();
+                err = true;
             }
+            if (err)
+                return new ErrorExp();
         }
 
         if (t1->ty == Tpointer)
@@ -9427,7 +9419,7 @@ Expression *DeleteExp::semantic(Scope *sc)
         }
     }
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
     {
         error("cannot use 'delete' in @nogc function %s", sc->func->toChars());
         goto Lerr;
@@ -10433,7 +10425,7 @@ Expression *IndexExp::semantic(Scope *sc)
                 e2 = e2->implicitCastTo(sc, taa->index);        // type checking
             }
             type = taa->next;
-            if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+            if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
             {
                 error("indexing an associative array in @nogc function %s may cause gc allocation",
                     sc->func->toChars());
@@ -10578,6 +10570,8 @@ Expression *PostExp::semantic(Scope *sc)
     if (e)
         return e;
 
+    e1->readModifyWrite(op);  // check whether rmw operation is allowed
+
     if (e1->op == TOKslice)
     {
         const char *s = op == TOKplusplus ? "increment" : "decrement";
@@ -10654,6 +10648,8 @@ PreExp::PreExp(TOK op, Loc loc, Expression *e)
 Expression *PreExp::semantic(Scope *sc)
 {
     Expression *e = op_overload(sc);
+    // printf("PreExp::semantic('%s')\n", toChars());
+
     if (e)
         return e;
 
@@ -11107,8 +11103,7 @@ Expression *AssignExp::semantic(Scope *sc)
                      *  e1 = init, e1.ctor(e2)
                      */
                     Expression *einit;
-                    einit = new AssignExp(loc, e1x, e1x->type->defaultInit(loc));
-                    einit->op = TOKblit;
+                    einit = new BlitExp(loc, e1x, e1x->type->defaultInit(loc));
                     einit->type = e1x->type;
 
                     Expression *e;
@@ -11346,7 +11341,7 @@ Expression *AssignExp::semantic(Scope *sc)
         checkDefCtor(ale->loc, tn);
         semanticTypeInfo(sc, tn);
 
-        if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+        if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
         {
             error("Setting 'length' in @nogc function %s may cause GC allocation",
                 sc->func->toChars());
@@ -11554,44 +11549,17 @@ int AssignExp::isLvalue()
 
 Expression *AssignExp::toLvalue(Scope *sc, Expression *ex)
 {
-    Expression *e;
-
-    if (e1->op == TOKvar)
+    if (e1->op == TOKslice ||
+        e1->op == TOKarraylength)
     {
-        /* Convert (e1 = e2) to
-         *    e1 = e2;
-         *    e1
-         */
-        e = e1->copy();
-        e = Expression::combine(this, e);
+        return Expression::toLvalue(sc, ex);
     }
-    else
-    {
-        // toLvalue may be called from inline.c with sc == NULL,
-        // but this branch should not be reached at that time.
-        assert(sc);
 
-        /* Convert (e1 = e2) to
-         *    ref v = e1;
-         *    v = e2;
-         *    v
-         */
-
-        // ref v = e1;
-        Identifier *id = Lexer::uniqueId("__assignop");
-        ExpInitializer *ei = new ExpInitializer(loc, e1);
-        VarDeclaration *v = new VarDeclaration(loc, e1->type, id, ei);
-        v->storage_class |= STCtemp | STCref | STCforeach;
-        Expression *de = new DeclarationExp(loc, v);
-
-        // v = e2
-        this->e1 = new VarExp(e1->loc, v);
-
-        e = new CommaExp(loc, de, this);
-        e = new CommaExp(loc, e, new VarExp(loc, v));
-        e = e->semantic(sc);
-    }
-    return e;
+    /* In front-end level, AssignExp should make an lvalue of e1.
+     * Taking the address of e1 will be handled in low level layer,
+     * so this function does nothing.
+     */
+    return this;
 }
 
 Expression *AssignExp::checkToBoolean(Scope *sc)
@@ -11610,6 +11578,14 @@ ConstructExp::ConstructExp(Loc loc, Expression *e1, Expression *e2)
     : AssignExp(loc, e1, e2)
 {
     op = TOKconstruct;
+}
+
+/************************************************************/
+
+BlitExp::BlitExp(Loc loc, Expression *e1, Expression *e2)
+    : AssignExp(loc, e1, e2)
+{
+    op = TOKblit;
 }
 
 /************************************************************/
@@ -11643,7 +11619,7 @@ Expression *CatAssignExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
     {
         error("cannot use operator ~= in @nogc function %s", sc->func->toChars());
         return new ErrorExp();
@@ -11801,6 +11777,8 @@ Expression *PowAssignExp::semantic(Scope *sc)
     Expression *e = op_overload(sc);
     if (e)
         return e;
+
+    e1->readModifyWrite(op, e2);  // check whether rmw operation is allowed
 
     assert(e1->type && e2->type);
     if (e1->op == TOKslice || e1->type->ty == Tarray || e1->type->ty == Tsarray)
@@ -12097,7 +12075,7 @@ Expression *CatExp::semantic(Scope *sc)
     if (e)
         return e;
 
-    if (sc->func && !sc->intypeof && !(sc->flags & SCOPEctfe) && sc->func->setGC())
+    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
     {
         error("cannot use operator ~ in @nogc function %s", sc->func->toChars());
         return new ErrorExp();

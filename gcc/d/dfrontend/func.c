@@ -696,7 +696,7 @@ void FuncDeclaration::semantic(Scope *sc)
         }
 
         if (storage_class & STCabstract)
-            cd->isabstract = 1;
+            cd->isabstract = true;
 
         // if static function, do not put in vtbl[]
         if (!isVirtual())
@@ -1289,7 +1289,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->stc &= ~(STCauto | STCscope | STCstatic | STCabstract |
                         STCdeprecated | STCoverride | STCvirtual |
                         STC_TYPECTOR | STCfinal | STCtls | STCgshared | STCref |
-                        STCproperty | STCsafe | STCtrusted | STCsystem);
+                        STCproperty | STCnothrow | STCpure | STCsafe | STCtrusted | STCsystem);
         sc2->protection = PROTpublic;
         sc2->explicitProtection = 0;
         sc2->structalign = STRUCTALIGN_DEFAULT;
@@ -3047,6 +3047,100 @@ MATCH FuncDeclaration::leastAsSpecialized(FuncDeclaration *g)
     return MATCHnomatch;
 }
 
+/// Walk through candidate template overloads and print them in the diagnostics.
+struct TemplateCandidateWalker
+{
+    Loc loc;
+    int numToDisplay;  // max num of overloads to print (-v overrides this).
+
+    /// Count template overloads.
+    struct CountWalker
+    {
+        int numOverloads;
+
+        static int fp(void *param, Dsymbol *s)
+        {
+            CountWalker *p = (CountWalker *)param;
+            ++(p->numOverloads);
+            return 0;
+        }
+    };
+
+    static int fp(void *param, Dsymbol *s)
+    {
+        TemplateDeclaration *t = s->isTemplateDeclaration();
+        if (!t) return 0;
+
+        TemplateCandidateWalker *p = (TemplateCandidateWalker *)param;
+
+        ::errorSupplemental(t->loc, "%s", t->toPrettyChars());
+
+        if (!global.params.verbose && --(p->numToDisplay) == 0 && t->overnext)
+        {
+            // Too many overloads to sensibly display.
+            // Just show count of remaining overloads.
+            CountWalker cw;
+            cw.numOverloads = 0;
+            overloadApply(t->overnext, &cw, &CountWalker::fp);
+
+            if (cw.numOverloads > 0)
+                ::errorSupplemental(p->loc, "... (%d more, -v to show) ...", cw.numOverloads);
+
+            return 1;  // stop iterating
+        }
+
+        return 0;
+    }
+};
+
+/// Walk through candidate template overloads and print them in the diagnostics.
+struct FuncCandidateWalker
+{
+    Loc loc;
+    int numToDisplay;  // max num of overloads to print (-v overrides this).
+
+    /// Count function overloads.
+    struct CountWalker
+    {
+        int numOverloads;
+
+        static int fp(void *param, Dsymbol *s)
+        {
+            CountWalker *p = (CountWalker *)param;
+
+            if (s->isFuncDeclaration())
+                ++(p->numOverloads);
+
+            return 0;
+        }
+    };
+
+    static int fp(void *param, Dsymbol *s)
+    {
+        FuncDeclaration *f = s->isFuncDeclaration();
+        if (!f) return 0;
+
+        FuncCandidateWalker *p = (FuncCandidateWalker *)param;
+
+        ::errorSupplemental(f->loc, "%s%s", f->toPrettyChars(),
+            Parameter::argsTypesToChars(((TypeFunction *)f->type)->parameters, ((TypeFunction *)f->type)->varargs));
+
+        if (!global.params.verbose && --(p->numToDisplay) == 0 && f->overnext)
+        {
+            CountWalker cw;
+            cw.numOverloads = 0;
+            overloadApply(f->overnext, &cw, &CountWalker::fp);
+
+            if (cw.numOverloads > 0)
+                ::errorSupplemental(p->loc, "... (%d more, -v to show) ...", cw.numOverloads);
+
+            return 1;  // stop iterating
+        }
+
+        return 0;
+    }
+};
+
 /*******************************************
  * Given a symbol that could be either a FuncDeclaration or
  * a function template, resolve it to a function symbol.
@@ -3147,51 +3241,60 @@ Lerror:
     if (tthis)
         tthis->modToBuffer(&fargsBuf);
 
+    const int numOverloadsDisplay = 5; // sensible number to display
+
     if (!m.lastf && !(flags & 1))   // no match
     {
-        if (td && !fd)  // all of overloads are template
+        if (td && !fd)  // all of overloads are templates
         {
             ::error(loc, "%s %s.%s cannot deduce function from argument types !(%s)%s, candidates are:",
                     td->kind(), td->parent->toPrettyChars(), td->ident->toChars(),
                     tiargsBuf.peekString(), fargsBuf.peekString());
 
-            // Display candidate template functions
-            int numToDisplay = 5; // sensible number to display
-            for (TemplateDeclaration *tdx = td; tdx; tdx = tdx->overnext)
-            {
-                ::errorSupplemental(tdx->loc, "%s", tdx->toPrettyChars());
-                if (!global.params.verbose && --numToDisplay == 0 && tdx->overnext)
-                {
-                    // Too many overloads to sensibly display.
-                    // Just show count of remaining overloads.
-                    int remaining = 0;
-                    for (TemplateDeclaration *tdy = tdx->overnext; tdy; tdy = tdy->overnext)
-                        ++remaining;
-                    if (remaining > 0)
-                        ::errorSupplemental(loc, "... (%d more, -v to show) ...", remaining);
-                    break;
-                }
-            }
+            // Display candidate templates (even if there are no multiple overloads)
+            TemplateCandidateWalker tcw;
+            tcw.loc = loc;
+            tcw.numToDisplay = numOverloadsDisplay;
+            overloadApply(td, &tcw, &TemplateCandidateWalker::fp);
         }
         else
         {
             assert(fd);
+
+            bool hasOverloads = fd->overnext != NULL;
             TypeFunction *tf = (TypeFunction *)fd->type;
             if (tthis && !MODimplicitConv(tthis->mod, tf->mod)) // modifier mismatch
             {
                 OutBuffer thisBuf, funcBuf;
                 MODMatchToBuffer(&thisBuf, tthis->mod, tf->mod);
                 MODMatchToBuffer(&funcBuf, tf->mod, tthis->mod);
-                ::error(loc, "%smethod %s is not callable using a %sobject",
-                    funcBuf.peekString(), fd->toPrettyChars(), thisBuf.peekString());
+                if (hasOverloads)
+                    ::error(loc, "None of the overloads of '%s' are callable using a %sobject, candidates are:",
+                        fd->ident->toChars(), thisBuf.peekString());
+                else
+                    ::error(loc, "%smethod %s is not callable using a %sobject",
+                        funcBuf.peekString(), fd->toPrettyChars(), thisBuf.peekString());
             }
             else
             {
                 //printf("tf = %s, args = %s\n", tf->deco, (*fargs)[0]->type->deco);
-                fd->error(loc, "%s%s is not callable using argument types %s",
-                    Parameter::argsTypesToChars(tf->parameters, tf->varargs),
-                    tf->modToChars(),
-                    fargsBuf.peekString());
+                if (hasOverloads)
+                    ::error(loc, "None of the overloads of '%s' are callable using argument types %s, candidates are:",
+                            fd->ident->toChars(), fargsBuf.peekString());
+                else
+                    fd->error(loc, "%s%s is not callable using argument types %s",
+                        Parameter::argsTypesToChars(tf->parameters, tf->varargs),
+                        tf->modToChars(),
+                        fargsBuf.peekString());
+            }
+
+            // Display candidate functions
+            if (hasOverloads)
+            {
+                FuncCandidateWalker fcw;
+                fcw.loc = loc;
+                fcw.numToDisplay = numOverloadsDisplay;
+                overloadApply(fd, &fcw, &FuncCandidateWalker::fp);
             }
         }
     }
@@ -4380,9 +4483,8 @@ void FuncLiteralDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
     CompoundStatement *cs = fbody->isCompoundStatement();
     Statement *s1;
-    if (semanticRun >= PASSsemantic3done)
+    if (semanticRun >= PASSsemantic3done && cs)
     {
-        assert(cs);
         s1 = (*cs->statements)[cs->statements->dim - 1];
     }
     else
