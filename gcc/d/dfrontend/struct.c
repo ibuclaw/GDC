@@ -191,7 +191,7 @@ void AggregateDeclaration::setScope(Scope *sc)
 
 void AggregateDeclaration::semantic2(Scope *sc)
 {
-    //printf("AggregateDeclaration::semantic2(%s)\n", toChars());
+    //printf("AggregateDeclaration::semantic2(%s) type = %s, errors = %d\n", toChars(), type->toChars(), errors);
     if (!members)
         return;
 
@@ -223,7 +223,7 @@ void AggregateDeclaration::semantic2(Scope *sc)
 
 void AggregateDeclaration::semantic3(Scope *sc)
 {
-    //printf("AggregateDeclaration::semantic3(%s)\n", toChars());
+    //printf("AggregateDeclaration::semantic3(%s) type = %s, errors = %d\n", toChars(), type->toChars(), errors);
     if (!members)
         return;
 
@@ -686,6 +686,8 @@ void StructDeclaration::semantic(Scope *sc)
 
     if (semanticRun >= PASSsemanticdone)
         return;
+    unsigned dprogress_save = Module::dprogress;
+    int errors = global.errors;
 
     Scope *scx = NULL;
     if (scope)
@@ -694,16 +696,13 @@ void StructDeclaration::semantic(Scope *sc)
         scx = scope;            // save so we don't make redundant copies
         scope = NULL;
     }
-    unsigned dprogress_save = Module::dprogress;
-    int errors = global.errors;
 
     if (!parent)
     {
         assert(sc->parent && sc->func);
         parent = sc->parent;
     }
-    assert(parent && parent == sc->parent);
-    assert(!isAnonymous());
+    assert(parent && !isAnonymous());
     type = type->semantic(loc, sc);
 
     if (type->ty == Tstruct && ((TypeStruct *)type)->sym != this)
@@ -729,11 +728,21 @@ void StructDeclaration::semantic(Scope *sc)
             error("structs, unions cannot be abstract");
         userAttribDecl = sc->userAttribDecl;
     }
+    else if (symtab)
+    {
+        if (sizeok == SIZEOKdone || !scx)
+        {
+            semanticRun = PASSsemanticdone;
+            return;
+        }
+    }
     semanticRun = PASSsemantic;
 
     if (!members)               // if opaque declaration
+    {
+        semanticRun = PASSsemanticdone;
         return;
-
+    }
     if (!symtab)
         symtab = new DsymbolTable();
 
@@ -815,6 +824,7 @@ void StructDeclaration::semantic(Scope *sc)
     }
 
     Module::dprogress++;
+    semanticRun = PASSsemanticdone;
 
     //printf("-StructDeclaration::semantic(this=%p, '%s')\n", this, toChars());
 
@@ -912,6 +922,8 @@ void StructDeclaration::semantic(Scope *sc)
         // The type is no good.
         type = Type::terror;
         this->errors = true;
+        if (deferred)
+            deferred->errors = true;
     }
 
     if (deferred && !global.gag)
@@ -928,8 +940,6 @@ void StructDeclaration::semantic(Scope *sc)
     }
 #endif
     assert(type->ty != Tstruct || ((TypeStruct *)type)->sym == this);
-
-    semanticRun = PASSsemanticdone;
 }
 
 Dsymbol *StructDeclaration::search(Loc loc, Identifier *ident, int flags)
@@ -986,6 +996,81 @@ void StructDeclaration::finalizeSize(Scope *sc)
     fill(loc, NULL, true);
 }
 
+/***************************************
+ * Fit elements[] to the corresponding type of field[].
+ * Input:
+ *      loc
+ *      sc
+ *      elements    The explicit arguments that given to construct object.
+ *      stype       The constructed object type.
+ * Returns false if any errors occur.
+ * Otherwise, returns true and elements[] are rewritten for the output.
+ */
+bool StructDeclaration::fit(Loc loc, Scope *sc, Expressions *elements, Type *stype)
+{
+    if (!elements)
+        return true;
+
+    size_t nfields = fields.dim - isNested();
+    size_t offset = 0;
+    for (size_t i = 0; i < elements->dim; i++)
+    {
+        Expression *e = (*elements)[i];
+        if (!e)
+            continue;
+
+        e = resolveProperties(sc, e);
+        if (i >= nfields)
+        {
+            if (i == fields.dim - 1 && isNested() && e->op == TOKnull)
+            {
+                // CTFE sometimes creates null as hidden pointer; we'll allow this.
+                continue;
+            }
+            ::error(loc, "more initializers than fields (%d) of %s", nfields, toChars());
+            return false;
+        }
+        VarDeclaration *v = fields[i];
+        if (v->offset < offset)
+        {
+            ::error(loc, "overlapping initialization for %s", v->toChars());
+            return false;
+        }
+        offset = (unsigned)(v->offset + v->type->size());
+
+        Type *telem = v->type;
+        if (stype)
+            telem = telem->addMod(stype->mod);
+        Type *origType = telem;
+        while (!e->implicitConvTo(telem) && telem->toBasetype()->ty == Tsarray)
+        {
+            /* Static array initialization, as in:
+             *  T[3][5] = e;
+             */
+            telem = telem->toBasetype()->nextOf();
+        }
+
+        if (!e->implicitConvTo(telem))
+            telem = origType;  // restore type for better diagnostic
+
+        e = e->implicitCastTo(sc, telem);
+        if (e->op == TOKerror)
+            return false;
+
+        (*elements)[i] = e->isLvalue() ? callCpCtor(sc, e) : valueNoDtor(e);
+    }
+    return true;
+}
+
+/***************************************
+ * Fill out remainder of elements[] with default initializers for fields[].
+ * Input:
+ *      loc
+ *      elements    explicit arguments which given to construct object.
+ *      ctorinit    true if the elements will be used for default initialization.
+ * Returns false if any errors occur.
+ * Otherwise, returns true and the missing arguments will be pushed in elements[].
+ */
 bool StructDeclaration::fill(Loc loc, Expressions *elements, bool ctorinit)
 {
     assert(sizeok == SIZEOKdone);

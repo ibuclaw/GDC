@@ -1570,7 +1570,7 @@ CallExp::toElem (IRState *irs)
   tree exp = d_build_call (tf, callee, object, arguments);
 
   if (tf->isref)
-    exp = build_deref (exp);
+    exp = build_deref(exp);
 
   // Some library calls are defined to return a generic type.
   // this->type is the real type we want to return.
@@ -2045,8 +2045,8 @@ NewExp::toElem (IRState *irs)
   else if (tb->ty == Tpointer && tb->nextOf()->toBasetype()->ty == Tstruct)
     {
       Type *htype = newtype->toBasetype();
-      gcc_assert (htype->ty == Tstruct);
-      gcc_assert (!onstack);
+      gcc_assert(htype->ty == Tstruct);
+      gcc_assert(!onstack);
 
       TypeStruct *stype = (TypeStruct *) htype;
       StructDeclaration *sd = stype->sym;
@@ -2057,28 +2057,40 @@ NewExp::toElem (IRState *irs)
 	return d_convert(type->toCtype(), integer_zero_node);
 
       if (allocator)
-	new_call = d_build_call (allocator, NULL_TREE, newargs);
+	new_call = d_build_call(allocator, NULL_TREE, newargs);
       else
 	{
 	  libcall = htype->isZeroInit() ? LIBCALL_NEWITEMT : LIBCALL_NEWITEMIT;
 	  tree arg = type->getTypeInfo(NULL)->toElem(irs);
-	  new_call = build_libcall (libcall, 1, &arg);
+	  new_call = build_libcall(libcall, 1, &arg);
 	}
-      new_call = maybe_make_temp (new_call);
-      new_call = build_nop (tb->toCtype(), new_call);
+      new_call = maybe_make_temp(new_call);
+      new_call = build_nop(tb->toCtype(), new_call);
 
-      // Set vthis for nested structs/classes.
-      if (sd->isNested())
-	{
-	  tree vthis_value = build_vthis (sd, irs->func);
-	  tree vthis_field = component_ref (indirect_ref (stype->toCtype(), new_call),
-					    sd->vthis->toSymbol()->Stree);
-	  new_call = compound_expr (modify_expr (vthis_field, vthis_value), new_call);
-	}
-
-      // Call constructor.
       if (member)
-	result = d_build_call (member, new_call, arguments);
+	{
+	  // Set vthis for nested structs.
+	  if (sd->isNested())
+	    {
+	      tree vthis_value = build_vthis(sd, irs->func);
+	      tree vthis_field = component_ref(indirect_ref(stype->toCtype(), new_call),
+					       sd->vthis->toSymbol()->Stree);
+	      new_call = compound_expr(modify_expr(vthis_field, vthis_value), new_call);
+	    }
+
+	  // Call constructor.
+	  result = d_build_call(member, new_call, arguments);
+	}
+      else if (arguments)
+	{
+	  StructLiteralExp *se = StructLiteralExp::create(loc, sd, arguments, htype);
+	  se->sym = new Symbol();
+	  se->sym->Stree = new_call;
+	  se->type = sd->type;
+	  se->fillHoles = 0;
+
+  	  result = compound_expr(se->toElem(irs), new_call);
+	}
       else
 	result = new_call;
     }
@@ -2395,12 +2407,12 @@ AssocArrayLiteralExp::toElem (IRState *irs)
 }
 
 elem *
-StructLiteralExp::toElem (IRState *irs)
+StructLiteralExp::toElem(IRState *irs)
 {
   vec<constructor_elt, va_gc> *ce = NULL;
   Type *tb = type->toBasetype();
 
-  gcc_assert (tb->ty == Tstruct);
+  gcc_assert(tb->ty == Tstruct);
 
   if (sinit)
     {
@@ -2409,13 +2421,13 @@ StructLiteralExp::toElem (IRState *irs)
       if (sinit->Stree == NULL_TREE)
 	sd->toInitializer();
 
-      gcc_assert (sinit->Stree != NULL);
+      gcc_assert(sinit->Stree != NULL);
       return sinit->Stree;
     }
 
   // CTFE may fill the hidden pointer by NullExp.
   size_t dim = elements ? elements->dim : 0;
-  gcc_assert (dim <= sd->fields.dim);
+  gcc_assert(dim <= sd->fields.dim);
 
   for (size_t i = 0; i < dim; i++)
     {
@@ -2431,33 +2443,33 @@ StructLiteralExp::toElem (IRState *irs)
 
       if (fld_type->ty == Tsarray)
 	{
-	  if (d_types_same (exp_type, fld_type))
+	  if (d_types_same(exp_type, fld_type))
 	    {
 	      // %% This would call _d_newarrayT ... use memcpy?
-	      exp_tree = convert_expr (exp->toElem (irs), exp->type, fld->type);
+	      exp_tree = convert_expr(exp->toElem(irs), exp->type, fld->type);
 	    }
 	  else
 	    {
-	      exp_tree = build_local_temp (fld_type->toCtype());
+	      exp_tree = build_local_temp(fld_type->toCtype());
 	      Type *etype = fld_type;
 
 	      while (etype->ty == Tsarray)
 		etype = etype->nextOf();
 
-	      gcc_assert (fld_type->size() % etype->size() == 0);
-	      tree size = fold_build2 (TRUNC_DIV_EXPR, size_type_node,
-				       size_int (fld_type->size()), size_int (etype->size()));
+	      gcc_assert(fld_type->size() % etype->size() == 0);
+	      tree size = fold_build2(TRUNC_DIV_EXPR, size_type_node,
+				      size_int(fld_type->size()), size_int(etype->size()));
 
-	      tree ptr_tree = build_nop (etype->pointerTo()->toCtype(),
-					 build_address (exp_tree));
-	      tree set_exp = irs->doArraySet (ptr_tree, exp->toElem (irs), size);
-	      exp_tree = compound_expr (set_exp, exp_tree);
+	      tree ptr_tree = build_nop(etype->pointerTo()->toCtype(),
+					build_address(exp_tree));
+	      tree set_exp = irs->doArraySet(ptr_tree, exp->toElem(irs), size);
+	      exp_tree = compound_expr(set_exp, exp_tree);
 	    }
 	}
       else
-	exp_tree = convert_expr (exp->toElem (irs), exp->type, fld->type);
+	exp_tree = convert_expr(exp->toElem(irs), exp->type, fld->type);
 
-      CONSTRUCTOR_APPEND_ELT (ce, fld->toSymbol()->Stree, exp_tree);
+      CONSTRUCTOR_APPEND_ELT(ce, fld->toSymbol()->Stree, exp_tree);
 
       // Unions only have one field that gets assigned.
       if (sd->isUnionDeclaration())
@@ -2468,30 +2480,31 @@ StructLiteralExp::toElem (IRState *irs)
     {
       // Maybe setup hidden pointer to outer scope context.
       tree vthis_field = sd->vthis->toSymbol()->Stree;
-      tree vthis_value = build_vthis (sd, irs->func);
-      CONSTRUCTOR_APPEND_ELT (ce, vthis_field, vthis_value);
-      gcc_assert (sinit == NULL);
+      tree vthis_value = build_vthis(sd, irs->func);
+      CONSTRUCTOR_APPEND_ELT(ce, vthis_field, vthis_value);
+      gcc_assert(sinit == NULL);
     }
 
-  tree ctor = build_constructor (type->toCtype(), ce);
-  tree var = build_local_temp (TREE_TYPE (ctor));
+  tree ctor = build_constructor(type->toCtype(), ce);
+  tree var = (sym != NULL)
+    ? build_deref(sym->Stree) : build_local_temp(TREE_TYPE(ctor));
   tree init = NULL_TREE;
 
   if (fillHoles)
     {
       // Initialize all alignment 'holes' to zero.
-      init = d_build_call_nary (builtin_decl_explicit (BUILT_IN_MEMSET), 3,
-				build_address (var), size_zero_node,
-				size_int (sd->structsize));
+      init = d_build_call_nary(builtin_decl_explicit(BUILT_IN_MEMSET), 3,
+			       build_address(var), size_zero_node,
+			       size_int(sd->structsize));
     }
 
-  init = maybe_compound_expr (init, modify_expr (var, ctor));
+  init = maybe_compound_expr(init, modify_expr(var, ctor));
 
-  return compound_expr (init, var);
+  return compound_expr(init, var);
 }
 
 elem *
-NullExp::toElem (IRState *)
+NullExp::toElem(IRState *)
 {
   TY base_ty = type->toBasetype()->ty;
   tree null_exp;

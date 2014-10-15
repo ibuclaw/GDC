@@ -34,6 +34,7 @@
 #include "id.h"
 #include "version.h"
 #include "aliasthis.h"
+#include "nspace.h"
 
 // How multiple declarations are parsed.
 // If 1, treat as C.
@@ -200,6 +201,8 @@ Dsymbols *Parser::parseDeclDefs(int once, Dsymbol **pLastDecl)
         StorageClass storageClass = STCundefined;
         Expression *depmsg = NULL;
         LINK link = LINKdefault;
+        Identifiers *idents = NULL;
+        Loc linkLoc;
         PROT protection = PROTundefined;
         unsigned alignment = 0;
         Expressions *udas = NULL;
@@ -311,24 +314,17 @@ Dsymbols *Parser::parseDeclDefs(int once, Dsymbol **pLastDecl)
             case TOKinvariant:
             {
                 Token *t = peek(&token);
-                if (t->value == TOKlparen)
+                if (t->value == TOKlparen && peek(t)->value == TOKrparen ||
+                    t->value == TOKlcurly)
                 {
-                    if (peek(t)->value == TOKrparen)
-                    {
-                        // invariant() forms start of class invariant
-                        s = parseInvariant();
-                    }
-                    else
-                    {
-                        // invariant(type)
-                        goto Ldeclaration;
-                    }
+                    // invariant {}
+                    // invariant() {}
+                    s = parseInvariant();
                 }
                 else
                 {
-                    error("use 'immutable' instead of 'invariant'");
-                    stc = STCimmutable;
-                    goto Lstc;
+                    error("invariant body expected, not '%s'", token.toChars());
+                    goto Lerror;
                 }
                 break;
             }
@@ -553,11 +549,12 @@ Dsymbols *Parser::parseDeclDefs(int once, Dsymbol **pLastDecl)
                     stc = STCextern;
                     goto Lstc;
                 }
-                LINK l = parseLinkage();
+                linkLoc = token.loc;
+                LINK lnk = parseLinkage(&idents);
                 if (link != LINKdefault)
-                    error("conflicting storage class 'extern(%d)' and 'extern(%d)'", l, link);
-                link = l;
-                linkage = l;
+                    error("redundant linkage declaration extern (%d)", lnk);
+                link = lnk;
+                linkage = lnk;
                 goto Lagain;
             }
 
@@ -734,7 +731,21 @@ Dsymbols *Parser::parseDeclDefs(int once, Dsymbol **pLastDecl)
                 a = new Dsymbols(), a->push(s);
             s = new DeprecatedDeclaration(depmsg, a);
         }
-        if (link != LINKdefault)
+        if (idents)
+        {
+            assert(link != LINKdefault);
+            assert(idents->dim);
+            for (size_t i = idents->dim; i;)
+            {
+                Identifier *id = (*idents)[--i];
+                if (s)
+                    a = new Dsymbols(), a->push(s);
+                s = new Nspace(linkLoc, id, a);
+            }
+            delete idents;
+            idents = NULL;
+        }
+        else if (link != LINKdefault)
         {
             if (s)
                 a = new Dsymbols(), a->push(s);
@@ -875,8 +886,6 @@ StorageClass Parser::parsePostfix(Expressions **pudas)
         switch (token.value)
         {
             case TOKconst:              stc |= STCconst;                break;
-            case TOKinvariant:
-                error("use 'immutable' instead of 'invariant'");
             case TOKimmutable:          stc |= STCimmutable;            break;
             case TOKshared:             stc |= STCshared;               break;
             case TOKwild:               stc |= STCwild;                 break;
@@ -920,8 +929,6 @@ StorageClass Parser::parseTypeCtor()
         switch (token.value)
         {
             case TOKconst:              stc |= STCconst;                break;
-            case TOKinvariant:
-                error("use 'immutable' instead of 'invariant'");
             case TOKimmutable:          stc |= STCimmutable;            break;
             case TOKshared:             stc |= STCshared;               break;
             case TOKwild:               stc |= STCwild;                 break;
@@ -1053,12 +1060,15 @@ Type *Parser::parseVector()
 }
 
 /***********************************
- * Parse extern (linkage)
+ * Parse:
+ *      extern (linkage)
+ *      extern (C++, namespaces)
  * The parser is on the 'extern' token.
  */
 
-LINK Parser::parseLinkage()
+LINK Parser::parseLinkage(Identifiers **pidents)
 {
+    Identifiers *idents = NULL;
     LINK link = LINKdefault;
     nextToken();
     assert(token.value == TOKlparen);
@@ -1077,8 +1087,31 @@ LINK Parser::parseLinkage()
         {
             link = LINKc;
             if (token.value == TOKplusplus)
-            {   link = LINKcpp;
+            {
+                link = LINKcpp;
                 nextToken();
+                if (token.value == TOKcomma)    // , namespaces
+                {
+                    idents = new Identifiers();
+                    nextToken();
+                    while (1)
+                    {
+                        if (token.value == TOKidentifier)
+                        {
+                            Identifier *idn = token.ident;
+                            idents->push(idn);
+                            nextToken();
+                            if (token.value == TOKdot)
+                            {
+                                nextToken();
+                                continue;
+                            }
+                        }
+                        else
+                            error("identifier expected for C++ namespace");
+                        break;
+                    }
+                }
             }
         }
         else if (id == Id::System)
@@ -1096,6 +1129,7 @@ LINK Parser::parseLinkage()
         link = LINKd;           // default
     }
     check(TOKrparen);
+    *pidents = idents;
     return link;
 }
 
@@ -1586,12 +1620,9 @@ Parameters *Parser::parseParameters(int *pvarargs, TemplateParameters **tpl)
                     stc = STCconst;
                     goto L2;
 
-                case TOKinvariant:
                 case TOKimmutable:
                     if (peek(&token)->value == TOKlparen)
                         goto Ldefault;
-                    if (token.value == TOKinvariant)
-                        error("use 'immutable' instead of 'invariant'");
                     stc = STCimmutable;
                     goto L2;
 
@@ -2638,12 +2669,9 @@ Type *Parser::parseType(Identifier **pident, TemplateParameters **tpl)
                 nextToken();
                 continue;
 
-            case TOKinvariant:
             case TOKimmutable:
                 if (peekNext() == TOKlparen)
                     break;
-                if (token.value == TOKinvariant)
-                    error("use 'immutable' instead of 'invariant'");
                 stc |= STCimmutable;
                 nextToken();
                 continue;
@@ -2776,10 +2804,8 @@ Type *Parser::parseBasicType()
             check(TOKrparen);
             break;
 
-        case TOKinvariant:
-            error("use 'immutable' instead of 'invariant'");
         case TOKimmutable:
-            // invariant(type)
+            // immutable(type)
             nextToken();
             check(TOKlparen);
             t = parseType()->addSTC(STCimmutable);
@@ -3088,10 +3114,12 @@ Dsymbols *Parser::parseDeclarations(bool autodecl, StorageClass storage_class, c
     Identifier *ident;
     TOK tok = TOKreserved;
     LINK link = linkage;
+    bool sawLinkage = false;            // seen a linkage declaration
     unsigned structalign = 0;
     Loc loc = token.loc;
     Expressions *udas = NULL;
     Token *tk;
+    Identifiers *idents = NULL;
 
     //printf("parseDeclarations() %s\n", token.toChars());
     if (!comment)
@@ -3217,12 +3245,9 @@ Dsymbols *Parser::parseDeclarations(bool autodecl, StorageClass storage_class, c
                 stc = STCconst;         // const as storage class
                 goto L1;
 
-            case TOKinvariant:
             case TOKimmutable:
                 if (peek(&token)->value == TOKlparen)
                     break;
-                if (token.value == TOKinvariant)
-                    error("use 'immutable' instead of 'invariant'");
                 stc = STCimmutable;
                 goto L1;
 
@@ -3268,13 +3293,24 @@ Dsymbols *Parser::parseDeclarations(bool autodecl, StorageClass storage_class, c
                 continue;
 
             case TOKextern:
+            {
                 if (peek(&token)->value != TOKlparen)
                 {   stc = STCextern;
                     goto L1;
                 }
 
-                link = parseLinkage();
+                if (sawLinkage)
+                    error("redundant linkage declaration");
+                sawLinkage = true;
+                Identifiers *idents = NULL;
+                link = parseLinkage(&idents);
+                if (idents)
+                {
+                    error("C++ name spaces not allowed here");
+                    delete idents;
+                }
                 continue;
+            }
 
             case TOKalign:
             {
@@ -4008,6 +4044,8 @@ Expression *Parser::parseDefaultInitExp()
                 e = new FuncInitExp(token.loc);
             else if (token.value == TOKprettyfunc)
                 e = new PrettyFuncInitExp(token.loc);
+            else
+                assert(0);
             nextToken();
             return e;
         }
@@ -4191,7 +4229,6 @@ Statement *Parser::parseStatement(int flags, const utf8_t** endPtr)
         case TOKabstract:
         case TOKextern:
         case TOKalign:
-        case TOKinvariant:
         case TOKimmutable:
         case TOKshared:
         case TOKwild:
@@ -4435,13 +4472,10 @@ Statement *Parser::parseStatement(int flags, const utf8_t** endPtr)
                             goto Lagain;
                         }
                         break;
-                    case TOKinvariant:
                     case TOKimmutable:
                         if (peekNext() != TOKlparen)
                         {
                             stc = STCimmutable;
-                            if (token.value == TOKinvariant)
-                                error("use 'immutable' instead of 'invariant'");
                             goto Lagain;
                         }
                         break;
@@ -4540,13 +4574,10 @@ Statement *Parser::parseStatement(int flags, const utf8_t** endPtr)
                         goto LagainStc;
                     }
                     break;
-                case TOKinvariant:
                 case TOKimmutable:
                     if (peekNext() != TOKlparen)
                     {
                         stc = STCimmutable;
-                        if (token.value == TOKinvariant)
-                            error("use 'immutable' instead of 'invariant'");
                         goto LagainStc;
                     }
                     break;
@@ -5414,12 +5445,12 @@ int Parser::isDeclaration(Token *t, int needId, TOK endtok, Token **pt)
     while (1)
     {
         if ((t->value == TOKconst ||
-             t->value == TOKinvariant ||
              t->value == TOKimmutable ||
              t->value == TOKwild ||
              t->value == TOKshared) &&
             peek(t)->value != TOKlparen)
-        {   /* const type
+        {
+            /* const type
              * immutable type
              * shared type
              * wild type
@@ -5439,7 +5470,8 @@ int Parser::isDeclaration(Token *t, int needId, TOK endtok, Token **pt)
     if ( needId == 1 ||
         (needId == 0 && !haveId) ||
         (needId == 2 &&  haveId))
-    {   if (pt)
+    {
+        if (pt)
             *pt = t;
         goto Lis;
     }
@@ -5569,7 +5601,6 @@ int Parser::isBasicType(Token **pt)
             goto L3;
 
         case TOKconst:
-        case TOKinvariant:
         case TOKimmutable:
         case TOKshared:
         case TOKwild:
@@ -5741,7 +5772,6 @@ int Parser::isDeclarator(Token **pt, int *haveId, int *haveTpl, TOK endtok)
                     switch (t->value)
                     {
                         case TOKconst:
-                        case TOKinvariant:
                         case TOKimmutable:
                         case TOKshared:
                         case TOKwild:
@@ -5820,7 +5850,6 @@ int Parser::isParameters(Token **pt)
                 continue;
 
             case TOKconst:
-            case TOKinvariant:
             case TOKimmutable:
             case TOKshared:
             case TOKwild:
@@ -6036,7 +6065,6 @@ int Parser::skipAttributes(Token *t, Token **pt)
         switch (t->value)
         {
             case TOKconst:
-            case TOKinvariant:
             case TOKimmutable:
             case TOKshared:
             case TOKwild:
@@ -6057,7 +6085,8 @@ int Parser::skipAttributes(Token *t, Token **pt)
             case TOKat:
                 t = peek(t);
                 if (t->value == TOKidentifier)
-                {   /* @identifier
+                {
+                    /* @identifier
                      * @identifier!arg
                      * @identifier!(arglist)
                      * any of the above followed by (arglist)
@@ -6075,7 +6104,8 @@ int Parser::skipAttributes(Token *t, Token **pt)
                     {
                         t = peek(t);
                         if (t->value == TOKlparen)
-                        {   // @identifier!(arglist)
+                        {
+                            // @identifier!(arglist)
                             if (!skipParens(t, &t))
                                 goto Lerror;
                             // t is on the next of closing parenthesis
@@ -6085,7 +6115,8 @@ int Parser::skipAttributes(Token *t, Token **pt)
                             // @identifier!arg
                             // Do low rent skipTemplateArgument
                             if (t->value == TOKvector)
-                            {   // identifier!__vector(type)
+                            {
+                                // identifier!__vector(type)
                                 t = peek(t);
                                 if (!skipParens(t, &t))
                                     goto Lerror;
@@ -6104,7 +6135,8 @@ int Parser::skipAttributes(Token *t, Token **pt)
                     continue;
                 }
                 if (t->value == TOKlparen)
-                {   // @( ArgumentList )
+                {
+                    // @( ArgumentList )
                     if (!skipParens(t, &t))
                         goto Lerror;
                     // t is on the next of closing parenthesis
@@ -6448,7 +6480,6 @@ Expression *Parser::parsePrimaryExp()
                          token.value == TOKargTypes ||
                          token.value == TOKparameters ||
                          token.value == TOKconst && peek(&token)->value == TOKrparen ||
-                         token.value == TOKinvariant && peek(&token)->value == TOKrparen ||
                          token.value == TOKimmutable && peek(&token)->value == TOKrparen ||
                          token.value == TOKshared && peek(&token)->value == TOKrparen ||
                          token.value == TOKwild && peek(&token)->value == TOKrparen ||
@@ -6457,11 +6488,6 @@ Expression *Parser::parsePrimaryExp()
                          token.value == TOKreturn))
                     {
                         tok2 = token.value;
-                        if (token.value == TOKinvariant)
-                        {
-                            error("use 'immutable' instead of 'invariant'");
-                            tok2 = TOKimmutable;
-                        }
                         nextToken();
                     }
                     else
@@ -6869,12 +6895,9 @@ Expression *Parser::parseUnaryExp()
                         nextToken();
                         continue;
 
-                    case TOKinvariant:
                     case TOKimmutable:
                         if (peekNext() == TOKlparen)
                             break;
-                        if (token.value == TOKinvariant)
-                            error("use 'immutable' instead of 'invariant'");
                         m |= MODimmutable;
                         nextToken();
                         continue;
@@ -6918,7 +6941,6 @@ Expression *Parser::parseUnaryExp()
         case TOKwild:
         case TOKshared:
         case TOKconst:
-        case TOKinvariant:
         case TOKimmutable:      // immutable(type)(arguments) / immutable(type).init
         {
             StorageClass stc = parseTypeCtor();
@@ -6929,7 +6951,8 @@ Expression *Parser::parseUnaryExp()
             {
                 nextToken();
                 if (token.value != TOKidentifier)
-                {   error("Identifier expected following (type).");
+                {
+                    error("Identifier expected following (type).");
                     return NULL;
                 }
                 e = typeDotIdExp(loc, t, token.ident);
@@ -7656,4 +7679,3 @@ void initPrecedence()
 
     precedence[TOKinterval] = PREC_assign;
 }
-

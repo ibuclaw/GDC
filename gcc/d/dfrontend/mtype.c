@@ -1560,7 +1560,7 @@ char *MODtoChars(unsigned char mod)
 /********************************
  * Name mangling.
  * Input:
- *      flag    0x100   do not do const/invariant
+ *      flag    0x100   do not do modifiers
  */
 
 void Type::toDecoBuffer(OutBuffer *buf, int flag)
@@ -1629,19 +1629,17 @@ char *Type::modToChars()
 void* for the work param and a string representation of the attribute. */
 int Type::modifiersApply(void *param, int (*fp)(void *, const char *))
 {
-    int res = 0;
+    static unsigned char modsArr[] = { MODconst, MODimmutable, MODwild, MODshared };
 
-    static unsigned modsArr[] = { MODconst, MODimmutable, MODwild, MODshared };
     for (size_t idx = 0; idx < 4; ++idx)
     {
         if (mod & modsArr[idx])
         {
-            if (res = fp(param, MODtoChars(modsArr[idx])))
+            if (int res = fp(param, MODtoChars(modsArr[idx])))
                 return res;
         }
     }
-
-    return res;
+    return 0;
 }
 
 /************************************
@@ -2465,20 +2463,6 @@ void Type::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps,
     *ps = NULL;
 }
 
-/*******************************
- * tparams == NULL:
- *     If one of the subtypes of this type is a TypeIdentifier,
- *     i.e. it's an unresolved type, return that type.
- * tparams != NULL:
- *     Only when the TypeIdentifier is one of template parameters,
- *     return that type.
- */
-
-Type *Type::reliesOnTident(TemplateParameters *tparams)
-{
-    return NULL;
-}
-
 /***************************************
  * Return !=0 if the type or any of its subtypes is wild.
  */
@@ -2598,12 +2582,6 @@ void TypeNext::checkDeprecated(Loc loc, Scope *sc)
     Type::checkDeprecated(loc, sc);
     if (next)   // next can be NULL if TypeFunction and auto return type
         next->checkDeprecated(loc, sc);
-}
-
-
-Type *TypeNext::reliesOnTident(TemplateParameters *tparams)
-{
-    return next->reliesOnTident(tparams);
 }
 
 int TypeNext::hasWild()
@@ -3760,11 +3738,6 @@ MATCH TypeVector::implicitConvTo(Type *to)
     return MATCHnomatch;
 }
 
-Type *TypeVector::reliesOnTident(TemplateParameters *tparams)
-{
-    return basetype->reliesOnTident(tparams);
-}
-
 /***************************** TypeArray *****************************/
 
 TypeArray::TypeArray(TY ty, Type *next)
@@ -4909,15 +4882,6 @@ MATCH TypeAArray::constConv(Type *to)
     return Type::constConv(to);
 }
 
-Type *TypeAArray::reliesOnTident(TemplateParameters *tparams)
-{
-    Type *t = TypeNext::reliesOnTident(tparams);
-    if (!t)
-        t = index->reliesOnTident(tparams);
-    return t;
-}
-
-
 /***************************** TypePointer *****************************/
 
 TypePointer::TypePointer(Type *t)
@@ -5929,14 +5893,6 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
         {
         Expression *arg = (*args)[u];
         assert(arg);
-
-        if (arg->op == TOKfunction)
-        {
-            arg = inferType(((FuncExp *)arg), p->type, 1);
-            if (!arg)
-                goto L1;    // try typesafe variadics
-        }
-
         //printf("arg: %s, type: %s\n", arg->toChars(), arg->type->toChars());
 
         Type *targ = arg->type;
@@ -6040,17 +5996,12 @@ MATCH TypeFunction::callMatch(Type *tthis, Expressions *args, int flag)
                         if (sz != nargs - u)
                             goto Nomatch;
                     case Tarray:
-                    {   TypeArray *ta = (TypeArray *)tb;
+                    {
+                        TypeArray *ta = (TypeArray *)tb;
                         for (; u < nargs; u++)
                         {
                             Expression *arg = (*args)[u];
                             assert(arg);
-                            if (arg->op == TOKfunction)
-                            {
-                                arg = inferType(((FuncExp *)arg), tb->nextOf(), 1);
-                                if (!arg)
-                                    goto Nomatch;
-                            }
 
                             /* If lazy array of delegates,
                              * convert arg(s) to delegate(s)
@@ -6101,18 +6052,6 @@ Ldone:
 Nomatch:
     //printf("no match\n");
     return MATCHnomatch;
-}
-
-Type *TypeFunction::reliesOnTident(TemplateParameters *tparams)
-{
-    size_t dim = Parameter::dim(parameters);
-    for (size_t i = 0; i < dim; i++)
-    {   Parameter *fparam = Parameter::getNth(parameters, i);
-        Type *t = fparam->type->reliesOnTident(tparams);
-        if (t)
-            return t;
-    }
-    return next ? next->reliesOnTident(tparams) : NULL;
 }
 
 /********************************************
@@ -6474,7 +6413,13 @@ void TypeQualified::resolveHelper(Loc loc, Scope *sc,
         {
             RootObject *id = idents[i];
             Type *t = s->getType();     // type symbol, type alias, or type tuple?
+            unsigned errorsave = global.errors;
             Dsymbol *sm = s->searchX(loc, sc, id);
+            if (global.errors != errorsave)
+            {
+                *pt = Type::terror;
+                return;
+            }
             //printf("\t3: s = %p %s %s, sm = %p\n", s, s->kind(), s->toChars(), sm);
             if (intypeid && !t && sm && sm->needThis())
                 goto L3;
@@ -6617,7 +6562,7 @@ L1:
 
         if (t != this)
         {
-            if (t->reliesOnTident())
+            if (reliesOnTident(t))
             {
                 if (s->scope)
                     t = t->semantic(loc, s->scope);
@@ -6819,22 +6764,6 @@ Type *TypeIdentifier::semantic(Loc loc, Scope *sc)
     return t;
 }
 
-Type *TypeIdentifier::reliesOnTident(TemplateParameters *tparams)
-{
-    if (tparams)
-    {
-        for (size_t i = 0; i < tparams->dim; i++)
-        {
-            TemplateParameter *tp = (*tparams)[i];
-            if (tp->ident->equals(ident))
-                return this;
-        }
-        return NULL;
-    }
-    else
-        return this;
-}
-
 Expression *TypeIdentifier::toExpression()
 {
     Expression *e = new IdentifierExp(loc, ident);
@@ -6953,33 +6882,6 @@ Dsymbol *TypeInstance::toDsymbol(Scope *sc)
     return s;
 }
 
-Type *TypeInstance::reliesOnTident(TemplateParameters *tparams)
-{
-    if (tparams)
-    {
-        for (size_t i = 0; i < tparams->dim; i++)
-        {
-            TemplateParameter *tp = (*tparams)[i];
-            if (tempinst->name == tp->ident)
-                return this;
-        }
-        if (!tempinst->tiargs)
-            return NULL;
-        for (size_t i = 0; i < tempinst->tiargs->dim; i++)
-        {
-            Type *t = isType((*tempinst->tiargs)[i]);
-            t = t ? t->reliesOnTident(tparams) : NULL;
-            if (t)
-                return t;
-        }
-        return NULL;
-    }
-    else
-    {
-        return Type::reliesOnTident(tparams);
-    }
-}
-
 Expression *TypeInstance::toExpression()
 {
     Expression *e = new ScopeExp(loc, tempinst);
@@ -7077,8 +6979,8 @@ void TypeTypeof::resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol
         }
         else if (exp->op == TOKimport)
         {
-            ScopeDsymbol *s = ((ScopeExp *)exp)->sds;
-            if (s->isPackage())
+            ScopeDsymbol *sds = ((ScopeExp *)exp)->sds;
+            if (sds->isPackage())
             {
                 error(loc, "%s has no type", exp->toChars());
                 goto Lerr;
@@ -8205,7 +8107,7 @@ bool TypeStruct::isAssignable()
     bool assignable = true;
     unsigned offset;
 
-    /* If any of the fields are const or invariant,
+    /* If any of the fields are const or immutable,
      * then one cannot assign this struct.
      */
     for (size_t i = 0; i < sym->fields.dim; i++)
@@ -8525,7 +8427,8 @@ L1:
                 e->type = t;    // do this so we don't get redundant dereference
             }
             else
-            {   /* For class objects, the classinfo reference is the first
+            {
+                /* For class objects, the classinfo reference is the first
                  * entry in the vtbl[]
                  */
                 e = new PtrExp(e->loc, e);
@@ -8533,7 +8436,8 @@ L1:
                 if (sym->isInterfaceDeclaration())
                 {
                     if (sym->isCPPinterface())
-                    {   /* C++ interface vtbl[]s are different in that the
+                    {
+                        /* C++ interface vtbl[]s are different in that the
                          * first entry is always pointer to the first virtual
                          * function, not classinfo.
                          * We can't get a .classinfo for it.
@@ -8555,8 +8459,9 @@ L1:
         }
 
         if (ident == Id::__vptr)
-        {   /* The pointer to the vtbl[]
-             * *cast(invariant(void*)**)e
+        {
+            /* The pointer to the vtbl[]
+             * *cast(immutable(void*)**)e
              */
             e = e->castTo(sc, tvoidptr->immutableOf()->pointerTo()->pointerTo());
             e = new PtrExp(e->loc, e);
@@ -8565,7 +8470,8 @@ L1:
         }
 
         if (ident == Id::__monitor)
-        {   /* The handle to the monitor (call it a void*)
+        {
+            /* The handle to the monitor (call it a void*)
              * *(cast(void**)e + 1)
              */
             e = e->castTo(sc, tvoidptr->pointerTo());
@@ -8821,12 +8727,14 @@ MATCH TypeClass::implicitConvTo(Type *to)
     ClassDeclaration *cdto = to->isClassHandle();
     if (cdto)
     {
-        if (cdto->scope)
+        //printf("TypeClass::implicitConvTo(to = '%s') %s, isbase = %d %d\n", to->toChars(), toChars(), cdto->isBaseInfoComplete(), sym->isBaseInfoComplete());
+        if (cdto->scope && !cdto->isBaseInfoComplete())
             cdto->semantic(NULL);
-        if (sym->scope)
+        if (sym->scope && !sym->isBaseInfoComplete())
             sym->semantic(NULL);
         if (cdto->isBaseOf(sym, NULL) && MODimplicitConv(mod, to->mod))
-        {   //printf("'to' is base\n");
+        {
+            //printf("'to' is base\n");
             return MATCHconvert;
         }
     }
@@ -9033,21 +8941,6 @@ bool TypeTuple::equals(RootObject *o)
         }
     }
     return false;
-}
-
-Type *TypeTuple::reliesOnTident(TemplateParameters *tparams)
-{
-    if (arguments)
-    {
-        for (size_t i = 0; i < arguments->dim; i++)
-        {
-            Parameter *arg = (*arguments)[i];
-            Type *t = arg->type->reliesOnTident(tparams);
-            if (t)
-                return t;
-        }
-    }
-    return NULL;
 }
 
 #if 0

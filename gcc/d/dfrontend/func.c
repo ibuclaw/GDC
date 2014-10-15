@@ -1665,9 +1665,9 @@ void FuncDeclaration::semantic3(Scope *sc)
                             if (v->isCtorinit() && !v->type->isMutable() && cd)
                                 error("missing initializer for %s field %s", MODtoChars(v->type->mod), v->toChars());
                             else if (v->storage_class & STCnodefaultctor)
-                                error("field %s must be initialized in constructor", v->toChars());
+                                ::error(loc, "field %s must be initialized in constructor", v->toChars());
                             else if (v->type->needsNested())
-                                error("field %s must be initialized in constructor, because it is nested struct", v->toChars());
+                                ::error(loc, "field %s must be initialized in constructor, because it is nested struct", v->toChars());
                         }
                         else
                         {
@@ -2775,7 +2775,21 @@ int overloadApply(Dsymbol *fstart, void *param, int (*fp)(void *, Dsymbol *))
     Dsymbol *next;
     for (d = fstart; d; d = next)
     {
-        if (FuncAliasDeclaration *fa = d->isFuncAliasDeclaration())
+        if (OverDeclaration *od = d->isOverDeclaration())
+        {
+            if (od->hasOverloads)
+            {
+                if (int r = overloadApply(od->aliassym, param, fp))
+                    return r;
+            }
+            else
+            {
+                if (int r = (*fp)(param, od->aliassym))
+                    return r;
+            }
+            next = od->overnext;
+        }
+        else if (FuncAliasDeclaration *fa = d->isFuncAliasDeclaration())
         {
             if (fa->hasOverloads)
             {
@@ -5142,9 +5156,13 @@ void UnitTestDeclaration::semantic(Scope *sc)
     protection = sc->protection;
 
     if (scope)
-    {   sc = scope;
+    {
+        sc = scope;
         scope = NULL;
     }
+
+    if (!isInstantiated() && inNonRoot())
+        return;
 
     if (global.params.useUnitTests)
     {

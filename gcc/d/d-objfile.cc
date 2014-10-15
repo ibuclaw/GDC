@@ -28,6 +28,7 @@
 #include "init.h"
 #include "module.h"
 #include "template.h"
+#include "nspace.h"
 #include "dfrontend/target.h"
 
 static FuncDeclaration *build_call_function (const char *, vec<FuncDeclaration *>, bool);
@@ -169,6 +170,19 @@ PragmaDeclaration::toObjFile(bool)
     }
 
   AttribDeclaration::toObjFile(false);
+}
+
+void
+Nspace::toObjFile(bool)
+{
+  if (isError(this) || !members)
+    return;
+
+  for (size_t i = 0; i < members->dim; i++)
+    {
+      Dsymbol *s = (*members)[i];
+      s->toObjFile(false);
+    }
 }
 
 void

@@ -111,7 +111,7 @@ Expression *op_overload(Expression *e, Scope *sc);
 Type *toStaticArrayType(SliceExp *e);
 Expression *scaleFactor(BinExp *be, Scope *sc);
 Expression *typeCombine(BinExp *be, Scope *sc);
-Expression *inferType(Expression *e, Type *t, int flag = 0, Scope *sc = NULL, TemplateParameters *tparams = NULL);
+Expression *inferType(Expression *e, Type *t, int flag = 0);
 Expression *semanticTraits(TraitsExp *e, Scope *sc);
 Type *getIndirection(Type *t);
 
@@ -721,6 +721,7 @@ public:
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
     Expression *semantic(Scope *sc, Expressions *arguments);
+    MATCH matchType(Type *to, Scope *sc, FuncExp **pfe, int flag = 0);
     char *toChars();
 
     elem *toElem(IRState *irs);

@@ -39,6 +39,7 @@ class StructDeclaration;
 class UnionDeclaration;
 class FuncDeclaration;
 class FuncAliasDeclaration;
+class OverDeclaration;
 class FuncLiteralDeclaration;
 class CtorDeclaration;
 class PostBlitDeclaration;
@@ -64,6 +65,7 @@ class ScopeDsymbol;
 class TemplateDeclaration;
 class TemplateInstance;
 class TemplateMixin;
+class Nspace;
 class EnumMember;
 class WithScopeSymbol;
 class ArrayScopeSymbol;
@@ -176,7 +178,7 @@ public:
     virtual const char *kind();
     virtual Dsymbol *toAlias();                 // resolve real symbol
     virtual int apply(Dsymbol_apply_ft_t fp, void *param);
-    virtual int addMember(Scope *sc, ScopeDsymbol *s, int memnum);
+    virtual int addMember(Scope *sc, ScopeDsymbol *sds, int memnum);
     virtual void setScope(Scope *sc);
     virtual void importAll(Scope *sc);
     virtual void semantic(Scope *sc);
@@ -234,6 +236,7 @@ public:
     virtual TemplateDeclaration *isTemplateDeclaration() { return NULL; }
     virtual TemplateInstance *isTemplateInstance() { return NULL; }
     virtual TemplateMixin *isTemplateMixin() { return NULL; }
+    virtual Nspace *isNspace() { return NULL; }
     virtual Declaration *isDeclaration() { return NULL; }
     virtual ThisDeclaration *isThisDeclaration() { return NULL; }
     virtual TypeInfoDeclaration *isTypeInfoDeclaration() { return NULL; }
@@ -243,6 +246,7 @@ public:
     virtual AggregateDeclaration *isAggregateDeclaration() { return NULL; }
     virtual FuncDeclaration *isFuncDeclaration() { return NULL; }
     virtual FuncAliasDeclaration *isFuncAliasDeclaration() { return NULL; }
+    virtual OverDeclaration *isOverDeclaration() { return NULL; }
     virtual FuncLiteralDeclaration *isFuncLiteralDeclaration() { return NULL; }
     virtual CtorDeclaration *isCtorDeclaration() { return NULL; }
     virtual PostBlitDeclaration *isPostBlitDeclaration() { return NULL; }
@@ -279,9 +283,11 @@ public:
     Dsymbols *members;          // all Dsymbol's in this scope
     DsymbolTable *symtab;       // members[] sorted into table
 
+private:
     Dsymbols *imports;          // imported Dsymbol's
     PROT *prots;                // array of PROT, one for each import
 
+public:
     ScopeDsymbol();
     ScopeDsymbol(Identifier *id);
     Dsymbol *syntaxCopy(Dsymbol *s);

@@ -502,6 +502,26 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             e->error("argument %s has no parent", o->toChars());
             goto Lfalse;
         }
+
+        if (FuncDeclaration *f = s->isFuncDeclaration())
+        {
+            if (TemplateDeclaration *td = getFuncTemplateDecl(f))
+            {
+                if (td->overroot)       // if not start of overloaded list of TemplateDeclaration's
+                    td = td->overroot;  // then get the start
+                Expression *ex = new TemplateExp(e->loc, td, f);
+                ex = ex->semantic(sc);
+                return ex;
+            }
+
+            if (FuncLiteralDeclaration *fld = f->isFuncLiteralDeclaration())
+            {
+                // Directly translate to VarExp instead of FuncExp
+                Expression *ex = new VarExp(e->loc, fld, 1);
+                return ex->semantic(sc);
+            }
+        }
+
         return (new DsymbolExp(e->loc, s))->semantic(sc);
     }
     else if (e->ident == Id::hasMember ||
@@ -697,34 +717,23 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         Dsymbol *s = getDsymbol(o);
         Type *t = isType(o);
         TypeFunction *tf = NULL;
-        FuncDeclaration *fd = NULL;
-        Type *type = NULL;
 
         if (s)
         {
-            if (FuncDeclaration *sfd = s->isFuncDeclaration())
-            {
-                fd = sfd;
-                type = fd->type;
-            }
-            else if (VarDeclaration *vd = s->isVarDeclaration())
-                type = vd->type;
+            if (FuncDeclaration *f = s->isFuncDeclaration())
+                t = f->type;
+            else if (VarDeclaration *v = s->isVarDeclaration())
+                t = v->type;
         }
-        else if (t)
+        if (t)
         {
-            type = t;
+            if (t->ty == Tfunction)
+                tf = (TypeFunction *)t;
+            else if (t->ty == Tdelegate)
+                tf = (TypeFunction *)t->nextOf();
+            else if (t->ty == Tpointer && t->nextOf()->ty == Tfunction)
+                tf = (TypeFunction *)t->nextOf();
         }
-
-        if (type)
-        {
-            if (type->ty == Tfunction)
-                tf = (TypeFunction *)type;
-            else if (type->ty == Tdelegate)
-                tf = (TypeFunction *)type->nextOf();
-            else if (type->ty == Tpointer && type->nextOf()->ty == Tfunction)
-                tf = (TypeFunction *)type->nextOf();
-        }
-
         if (!tf)
         {
             e->error("first argument is not a function");
@@ -736,11 +745,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         PushAttributes pa;
         pa.mods = mods;
 
-        if (fd)
-            fd->type->modifiersApply(&pa, &PushAttributes::fp);
-        else if (tf)
-            tf->modifiersApply(&pa, &PushAttributes::fp);
-
+        tf->modifiersApply(&pa, &PushAttributes::fp);
         tf->attributesApply(&pa, &PushAttributes::fp, TRUSTformatSystem);
 
         TupleExp *tup = new TupleExp(e->loc, mods);
@@ -752,7 +757,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             goto Ldimerror;
         RootObject *o = (*e->args)[0];
         Dsymbol *s = getDsymbol(o);
-        ScopeDsymbol *sd;
+        ScopeDsymbol *sds;
         if (!s)
         {
             e->error("argument has no members");
@@ -762,9 +767,9 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         if ((import = s->isImport()) != NULL)
         {
             // Bugzilla 9692
-            sd = import->mod;
+            sds = import->mod;
         }
-        else if ((sd = s->isScopeDsymbol()) == NULL)
+        else if ((sds = s->isScopeDsymbol()) == NULL)
         {
             e->error("%s %s has no members", s->kind(), s->toChars());
             goto Lfalse;
@@ -819,9 +824,9 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
 
         Identifiers *idents = new Identifiers;
 
-        ScopeDsymbol::foreach(sc, sd->members, &PushIdentsDg::dg, idents);
+        ScopeDsymbol::foreach(sc, sds->members, &PushIdentsDg::dg, idents);
 
-        ClassDeclaration *cd = sd->isClassDeclaration();
+        ClassDeclaration *cd = sds->isClassDeclaration();
         if (cd && e->ident == Id::allMembers)
         {
             struct PushBaseMembers

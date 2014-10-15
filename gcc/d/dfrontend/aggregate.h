@@ -172,6 +172,7 @@ public:
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     const char *kind();
     void finalizeSize(Scope *sc);
+    bool fit(Loc loc, Scope *sc, Expressions *elements, Type *stype);
     bool fill(Loc loc, Expressions *elements, bool ctorinit);
     bool isPOD();
 
@@ -282,7 +283,7 @@ public:
     #define OFFSET_RUNTIME 0x76543210
     virtual bool isBaseOf(ClassDeclaration *cd, int *poffset);
 
-    virtual bool isBaseInfoComplete();
+    bool isBaseInfoComplete();
     Dsymbol *search(Loc, Identifier *ident, int flags = IgnoreNone);
     ClassDeclaration *searchBase(Loc, Identifier *ident);
     bool isFuncHidden(FuncDeclaration *fd);
@@ -322,7 +323,6 @@ public:
     bool isBaseOf(ClassDeclaration *cd, int *poffset);
     bool isBaseOf(BaseClass *bc, int *poffset);
     const char *kind();
-    bool isBaseInfoComplete();
     int vtblOffset();
     bool isCPPinterface();
     bool isCOMinterface();

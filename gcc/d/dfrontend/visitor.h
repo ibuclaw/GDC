@@ -125,6 +125,7 @@ class Declaration;
 class TupleDeclaration;
 class TypedefDeclaration;
 class AliasDeclaration;
+class OverDeclaration;
 class VarDeclaration;
 class SymbolDeclaration;
 class ClassInfoDeclaration;
@@ -401,6 +402,7 @@ public:
     virtual void visit(TupleDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(TypedefDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(AliasDeclaration *s) { visit((Declaration *)s); }
+    virtual void visit(OverDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(VarDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(SymbolDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(ClassInfoDeclaration *s) { visit((VarDeclaration *)s); }
