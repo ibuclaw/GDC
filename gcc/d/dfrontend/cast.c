@@ -106,7 +106,6 @@ Expression *implicitCastTo(Expression *e, Scope *sc, Type *t)
         void visit(StringExp *e)
         {
             //printf("StringExp::implicitCastTo(%s of type %s) => %s\n", e->toChars(), e->type->toChars(), t->toChars());
-            unsigned char committed = e->committed;
             visit((Expression *)e);
             if (result->op == TOKstring)
             {
@@ -3402,7 +3401,15 @@ IntRange getIntRange(Expression *e)
                 ir2 = IntRange(SignExtendedNumber(0), SignExtendedNumber(64));
 
             range = IntRange(ir1.imin >> ir2.imax, ir1.imax >> ir2.imin).cast(e->type);
+        }
 
+        void visit(VarExp *e)
+        {
+            VarDeclaration* vd = e->var->isVarDeclaration();
+            if (vd && vd->range)
+                range = *vd->range;
+            else
+                visit((Expression *)e);
         }
 
         void visit(CommaExp *e)

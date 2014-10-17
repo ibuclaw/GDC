@@ -1228,21 +1228,6 @@ void FuncDeclaration::semantic3(Scope *sc)
     if (!inferRetType && f->next->ty == Terror)
         return;
 
-#if 0
-    // Check the 'throws' clause
-    if (fthrows)
-    {
-        for (size_t i = 0; i < fthrows->dim; i++)
-        {
-            Type *t = (*fthrows)[i];
-
-            t = t->semantic(loc, sc);
-            if (!t->isClassHandle())
-                error("can only throw classes, not %s", t->toChars());
-        }
-    }
-#endif
-
     if (!fbody && inferRetType && !type->nextOf())
     {
         error("has no function body with return type inference");
@@ -1294,6 +1279,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->structalign = STRUCTALIGN_DEFAULT;
         if (this->ident != Id::require && this->ident != Id::ensure)
             sc2->flags = sc->flags & ~SCOPEcontract;
+        sc2->flags &= ~SCOPEcompile;
         sc2->tf = NULL;
         sc2->os = NULL;
         sc2->noctor = 0;
@@ -1303,7 +1289,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->fieldinit = NULL;
         sc2->fieldinit_dim = 0;
 
-        if (AggregateDeclaration *ad = isMember2())
+        if (isMember2())
         {
             FuncLiteralDeclaration *fld = isFuncLiteralDeclaration();
             if (fld && !sc->intypeof)
@@ -3015,7 +3001,6 @@ MATCH FuncDeclaration::leastAsSpecialized(FuncDeclaration *g)
     TypeFunction *tf = (TypeFunction *)type;
     TypeFunction *tg = (TypeFunction *)g->type;
     size_t nfparams = Parameter::dim(tf->parameters);
-    size_t ngparams = Parameter::dim(tg->parameters);
 
     /* If both functions have a 'this' pointer, and the mods are not
      * the same and g's is not const, then this is less specialized.
@@ -3228,7 +3213,6 @@ FuncDeclaration *resolveFuncCall(Loc loc, Scope *sc, Dsymbol *s,
         }
     }
 
-Lerror:
     /* Failed to find a best match.
      * Do nothing or print error.
      */
@@ -3662,6 +3646,11 @@ PURE FuncDeclaration::isPureBypassingInference()
         return PUREfwdref;
     else
         return isPure();
+}
+
+bool FuncDeclaration::isPureBypassingInferenceX()
+{
+    return !(flags & FUNCFLAGpurityInprocess) && isPure() != PUREimpure;
 }
 
 /**************************************
@@ -4839,13 +4828,12 @@ void StaticCtorDeclaration::semantic(Scope *sc)
          * Note that this is not thread safe; should not have threads
          * during static construction.
          */
-        Identifier *id = Lexer::idPool("__gate");
-        VarDeclaration *v = new VarDeclaration(Loc(), Type::tint32, id, NULL);
+        VarDeclaration *v = new VarDeclaration(Loc(), Type::tint32, Id::gate, NULL);
         v->storage_class = STCtemp | (isSharedStaticCtorDeclaration() ? STCstatic : STCtls);
         Statements *sa = new Statements();
         Statement *s = new ExpStatement(Loc(), v);
         sa->push(s);
-        Expression *e = new IdentifierExp(Loc(), id);
+        Expression *e = new IdentifierExp(Loc(), v->ident);
         e = new AddAssignExp(Loc(), e, new IntegerExp(1));
         e = new EqualExp(TOKnotequal, Loc(), e, new IntegerExp(1));
         s = new IfStatement(Loc(), NULL, e, new ReturnStatement(Loc(), NULL), NULL);
@@ -4971,13 +4959,12 @@ void StaticDtorDeclaration::semantic(Scope *sc)
          * Note that this is not thread safe; should not have threads
          * during static destruction.
          */
-        Identifier *id = Lexer::idPool("__gate");
-        VarDeclaration *v = new VarDeclaration(Loc(), Type::tint32, id, NULL);
+        VarDeclaration *v = new VarDeclaration(Loc(), Type::tint32, Id::gate, NULL);
         v->storage_class = STCtemp | (isSharedStaticDtorDeclaration() ? STCstatic : STCtls);
         Statements *sa = new Statements();
         Statement *s = new ExpStatement(Loc(), v);
         sa->push(s);
-        Expression *e = new IdentifierExp(Loc(), id);
+        Expression *e = new IdentifierExp(Loc(), v->ident);
         e = new AddAssignExp(Loc(), e, new IntegerExp(-1));
         e = new EqualExp(TOKnotequal, Loc(), e, new IntegerExp(0));
         s = new IfStatement(Loc(), NULL, e, new ReturnStatement(Loc(), NULL), NULL);

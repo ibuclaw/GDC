@@ -665,7 +665,13 @@ ClassReferenceExp::toDt2 (dt_t **pdt, ClassDeclaration *cd, Dts *dts)
       offset = cd->baseClass->structsize;
     }
   else
-    offset = Target::ptrsize * 2;
+    {
+      // Allow room for __vptr and __monitor.
+      if (cd->cpp)
+	offset = Target::ptrsize;
+      else
+	offset = Target::ptrsize * 2;
+    }
 
   for (size_t i = 0; i < cd->fields.dim; i++)
     {

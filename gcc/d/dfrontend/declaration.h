@@ -291,6 +291,7 @@ public:
                                 // if the destructor should be run. Used to prevent
                                 // dtor calls on postblitted vars
     Expression *edtor;          // if !=NULL, does the destruction of the variable
+    IntRange *range;            // if !NULL, the variable is known to be within the range
 
     VarDeclaration(Loc loc, Type *t, Identifier *id, Initializer *init);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -580,6 +581,11 @@ void add_builtin(const char *mangle, builtin_fp fp);
 void builtin_init();
 void buildClosure(FuncDeclaration *fd, IRState *irs);
 
+#define FUNCFLAGpurityInprocess 1   // working on determining purity
+#define FUNCFLAGsafetyInprocess 2   // working on determining safety
+#define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
+#define FUNCFLAGnogcInprocess 8     // working on determining @nogc
+
 class FuncDeclaration : public Declaration
 {
 public:
@@ -656,10 +662,6 @@ public:
                                         // called this one
 
     unsigned flags;
-    #define FUNCFLAGpurityInprocess 1   // working on determining purity
-    #define FUNCFLAGsafetyInprocess 2   // working on determining safety
-    #define FUNCFLAGnothrowInprocess 4  // working on determining nothrow
-    #define FUNCFLAGnogcInprocess 8     // working on determining @nogc
 
     FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type);
     Dsymbol *syntaxCopy(Dsymbol *);
@@ -699,6 +701,7 @@ public:
     bool hasOverloads();
     PURE isPure();
     PURE isPureBypassingInference();
+    bool isPureBypassingInferenceX();
     bool setImpure();
     bool isSafe();
     bool isSafeBypassingInference();

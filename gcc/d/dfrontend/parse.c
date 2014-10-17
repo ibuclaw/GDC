@@ -3528,9 +3528,9 @@ L2:
         }
         else if (t->ty == Tfunction)
         {
-            TypeFunction *tf = (TypeFunction *)t;
             Expression *constraint = NULL;
 #if 0
+            TypeFunction *tf = (TypeFunction *)t;
             if (Parameter::isTPL(tf->parameters))
             {
                 if (!tpl)
@@ -4059,7 +4059,7 @@ Expression *Parser::parseDefaultInitExp()
         Token *t = peek(&token);
         if (t->value == TOKcomma || t->value == TOKrparen)
         {
-            Expression *e;
+            Expression *e = NULL;
             if (token.value == TOKfile)
                 e = new FileInitExp(token.loc);
             else if (token.value == TOKline)

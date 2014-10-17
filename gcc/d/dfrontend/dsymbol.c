@@ -708,9 +708,8 @@ void Dsymbol::checkDeprecated(Loc loc, Scope *sc)
 Module *Dsymbol::getModule()
 {
     //printf("Dsymbol::getModule()\n");
-    TemplateDeclaration *td = getFuncTemplateDecl(this);
-    if (td)
-        return td->getModule();
+    if (TemplateInstance *ti = isInstantiated())
+        return ti->tempdecl->getModule();
 
     Dsymbol *s = this;
     while (s)
@@ -731,9 +730,8 @@ Module *Dsymbol::getModule()
 Module *Dsymbol::getAccessModule()
 {
     //printf("Dsymbol::getAccessModule()\n");
-    TemplateDeclaration *td = getFuncTemplateDecl(this);
-    if (td)
-        return td->getAccessModule();
+    if (TemplateInstance *ti = isInstantiated())
+        return ti->tempdecl->getAccessModule();
 
     Dsymbol *s = this;
     while (s)
@@ -1444,7 +1442,7 @@ Dsymbol *ArrayScopeSymbol::search(Loc loc, Identifier *ident, int flags)
                 // Check for multi-dimensional opDollar(dim) template.
                 if (TemplateDeclaration *td = s->isTemplateDeclaration())
                 {
-                    dinteger_t dim;
+                    dinteger_t dim = 0;
                     if (exp->op == TOKarray)
                     {
                         dim = ((ArrayExp *)exp)->currentDimension;

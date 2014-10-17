@@ -141,6 +141,7 @@ Type::genTypeInfo(Scope *sc)
 Expression *
 Type::getTypeInfo(Scope *sc)
 {
+  gcc_assert(this->ty == Terror);
   this->genTypeInfo(sc);
   Expression *e = VarExp::create(Loc(), this->vtinfo);
   e = e->addressOf();

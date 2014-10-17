@@ -120,7 +120,7 @@ int findFieldIndexByName(StructDeclaration *sd, VarDeclaration *v)
     for (size_t i = 0; i < sd->fields.dim; ++i)
     {
         if (sd->fields[i] == v)
-            return i;
+            return (int)i;
     }
     return -1;
 }
@@ -1689,10 +1689,12 @@ Expression *findKeyInAA(Loc loc, AssocArrayLiteralExp *ae, Expression *e2)
  * interpreted CTFE expression, so it cannot have side-effects.
  */
 Expression *ctfeIndex(Loc loc, Type *type, Expression *e1, uinteger_t indx)
-{   //printf("ctfeIndex(e1 = %s)\n", e1->toChars());
+{
+    //printf("ctfeIndex(e1 = %s)\n", e1->toChars());
     assert(e1->type);
     if (e1->op == TOKstring)
-    {   StringExp *es1 = (StringExp *)e1;
+    {
+        StringExp *es1 = (StringExp *)e1;
         if (indx >= es1->len)
         {
             error(loc, "string index %llu is out of bounds [0 .. %llu]", indx, (ulonglong)es1->len);
