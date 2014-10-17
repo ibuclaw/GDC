@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/aggregate.h
+ */
 
 #ifndef DMD_AGGREGATE_H
 #define DMD_AGGREGATE_H
@@ -59,6 +60,7 @@ bool needOpEquals(StructDeclaration *sd);
 FuncDeclaration *buildOpEquals(StructDeclaration *sd, Scope *sc);
 FuncDeclaration *buildXopEquals(StructDeclaration *sd, Scope *sc);
 FuncDeclaration *buildXopCmp(StructDeclaration *sd, Scope *sc);
+FuncDeclaration *buildXtoHash(StructDeclaration *ad, Scope *sc);
 FuncDeclaration *buildCpCtor(StructDeclaration *sd, Scope *sc);
 FuncDeclaration *buildPostBlit(StructDeclaration *sd, Scope *sc);
 FuncDeclaration *buildDtor(AggregateDeclaration *ad, Scope *sc);
@@ -154,6 +156,7 @@ public:
 
     FuncDeclaration *xeq;       // TypeInfo_Struct.xopEquals
     FuncDeclaration *xcmp;      // TypeInfo_Struct.xopCmp
+    FuncDeclaration *xhash;     // TypeInfo_Struct.xtoHash
     static FuncDeclaration *xerreq;      // object.xopEquals
     static FuncDeclaration *xerrcmp;     // object.xopCmp
 

@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/dsymbol.h
+ */
 
 #ifndef DMD_DSYMBOL_H
 #define DMD_DSYMBOL_H
@@ -98,8 +99,9 @@ enum PROT
     PROTexport,
 };
 
-// this is used for printing the protection in json, traits, docs, etc.
-extern const char* Pprotectionnames[];
+// in hdrgen.c
+void protectionToBuffer(OutBuffer *buf, PROT prot);
+const char *protectionToChars(PROT prot);
 
 /* State of symbol in winding its way through the passes of the compiler
  */
@@ -191,7 +193,6 @@ public:
     virtual void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
     virtual unsigned size(Loc loc);
     virtual bool isforwardRef();
-    virtual void defineRef(Dsymbol *s);
     virtual AggregateDeclaration *isThis();     // is a 'this' required to access the member
     AggregateDeclaration *isAggregateMember();  // are we a member of an aggregate?
     AggregateDeclaration *isAggregateMember2(); // are we a member of an aggregate?
@@ -294,9 +295,7 @@ public:
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
     void importScope(Dsymbol *s, PROT protection);
     bool isforwardRef();
-    void defineRef(Dsymbol *s);
     static void multiplyDefined(Loc loc, Dsymbol *s1, Dsymbol *s2);
-    Dsymbol *nameCollision(Dsymbol *s);
     const char *kind();
     FuncDeclaration *findGetMembers();
     virtual Dsymbol *symtabInsert(Dsymbol *s);

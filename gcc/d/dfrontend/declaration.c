@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/declaration.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -990,40 +991,13 @@ void VarDeclaration::semantic(Scope *sc)
         if (needctfe) sc = sc->startCTFE();
 
         //printf("inferring type for %s with init %s\n", toChars(), init->toChars());
-        ArrayInitializer *ai = init->isArrayInitializer();
-        if (ai)
-        {
-            Expression *e;
-            if (ai->isAssociativeArray())
-                e = ai->toAssocArrayLiteral();
-            else
-                e = init->toExpression();
-            if (!e)
-            {
-                error("cannot infer type from initializer");
-                e = new ErrorExp();
-            }
-            init = new ExpInitializer(e->loc, e);
-            type = init->inferType(sc);
-            if (type->ty == Tsarray)
-                type = type->nextOf()->arrayOf();
-        }
-        else
-        {
-            type = init->inferType(sc);
-        }
+        init = init->inferType(sc);
+        type = init->toExpression()->type;
 
         if (needctfe) sc = sc->endCTFE();
-//      type = type->semantic(loc, sc);
 
         inuse--;
         inferred = 1;
-
-        if (init->isArrayInitializer() && type->toBasetype()->ty == Tsarray)
-        {
-            // Prefer array literals to give a T[] type rather than a T[dim]
-            type = type->toBasetype()->nextOf()->arrayOf();
-        }
 
         /* This is a kludge to support the existing syntax for RAII
          * declarations.
@@ -1369,8 +1343,7 @@ Lnomatch:
         error("only parameters or foreach declarations can be ref");
     }
 
-    if (type->hasWild() &&
-        !(type->ty == Tpointer && type->nextOf()->ty == Tfunction || type->ty == Tdelegate))
+    if (type->hasWild())
     {
         if (storage_class & (STCstatic | STCextern | STCtls | STCgshared | STCmanifest | STCfield) ||
             isDataseg()
@@ -1568,8 +1541,8 @@ Lnomatch:
                     Expression *ex = ei->exp;
                     while (ex->op == TOKcomma)
                         ex = ((CommaExp *)ex)->e2;
-                    assert(ex->op == TOKblit || ex->op == TOKconstruct);
-                    ex = ((AssignExp *)ex)->e2;
+                    if (ex->op == TOKblit || ex->op == TOKconstruct)
+                        ex = ((AssignExp *)ex)->e2;
                     if (ex->op == TOKnew)
                     {
                         // See if initializer is a NewExp that can be allocated on the stack
@@ -1854,6 +1827,8 @@ void VarDeclaration::setFieldOffset(AggregateDeclaration *ad, unsigned *poffset,
         ad->sizeok = SIZEOKfwd;             // cannot finish; flag as forward referenced
         return;
     }
+    if (t->ty == Terror)
+        return;
 
 
     unsigned memsize      = (unsigned)t->size(loc);  // size of member
@@ -2135,7 +2110,8 @@ bool VarDeclaration::isDataseg()
         return false;
     Dsymbol *parent = this->toParent();
     if (!parent && !(storage_class & STCstatic))
-    {   error("forward referenced");
+    {
+        error("forward referenced");
         type = Type::terror;
         return false;
     }
@@ -2152,13 +2128,6 @@ bool VarDeclaration::isDataseg()
 bool VarDeclaration::isThreadlocal()
 {
     //printf("VarDeclaration::isThreadlocal(%p, '%s')\n", this, toChars());
-#if 0 //|| TARGET_OSX
-    /* To be thread-local, must use the __thread storage class.
-     * BUG: OSX doesn't support thread local yet.
-     */
-    return isDataseg() &&
-        (storage_class & (STCtls | STCconst | STCimmutable | STCshared | STCgshared)) == STCtls;
-#else
     /* Data defaults to being thread-local. It is not thread-local
      * if it is immutable, const or shared.
      */
@@ -2166,7 +2135,6 @@ bool VarDeclaration::isThreadlocal()
         !(storage_class & (STCimmutable | STCconst | STCshared | STCgshared));
     //printf("\treturn %d\n", i);
     return i;
-#endif
 }
 
 /********************************************

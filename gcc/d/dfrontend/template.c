@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/template.c
+ */
 
 // Handle template implementation
 
@@ -1470,23 +1471,15 @@ MATCH TemplateDeclaration::deduceFunctionTemplateMatch(
 
                     Type *tt;
                     MATCH m;
-
-                    if (tid->mod & MODwild)
+                    if (unsigned char wm = deduceWildHelper(farg->type, &tt, tid))
                     {
-                        unsigned char wm = deduceWildHelper(farg->type, &tt, tid);
-                        if (wm)
-                        {
-                            wildmatch |= wm;
-                            m = MATCHconst;
-                            goto Lx;
-                        }
+                        wildmatch |= wm;
+                        m = MATCHconst;
                     }
-
-                    m = deduceTypeHelper(farg->type, &tt, tid);
-                    if (!m)
-                        goto Lnomatch;
-
-                Lx:
+                    else
+                    {
+                        m = deduceTypeHelper(farg->type, &tt, tid);
+                    }
                     if (m <= MATCHnomatch)
                         goto Lnomatch;
                     if (m < match)
@@ -1569,6 +1562,10 @@ Lretry:
 
             if (!(fparam->storageClass & STClazy) && argtype->ty == Tvoid && farg->op != TOKfunction)
                 goto Lnomatch;
+
+            // Bugzilla 12876: optimize arugument to allow CT-known length matching
+            farg = farg->optimize(WANTvalue, (fparam->storageClass & (STCref | STCout)) != 0);
+            //printf("farg = %s %s\n", farg->type->toChars(), farg->toChars());
 
             /* Adjust top const of the dynamic array type or pointer type argument
              * to the corresponding parameter type qualifier,
@@ -2983,7 +2980,9 @@ size_t templateParameterLookup(Type *tparam, TemplateParameters *parameters)
 
 unsigned char deduceWildHelper(Type *t, Type **at, Type *tparam)
 {
-    assert(tparam->mod & MODwild);
+    if ((tparam->mod & MODwild) == 0)
+        return 0;
+
     *at = NULL;
 
     #define X(U,T)  ((U) << 4) | (T)
@@ -3398,36 +3397,32 @@ MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *par
                     return;
                 }
 
-                if (wm && (tparam->mod & MODwild))
+                if (unsigned char wx = wm ? deduceWildHelper(t, &tt, tparam) : 0)
                 {
-                    unsigned char wx = deduceWildHelper(t, &tt, tparam);
-                    if (wx)
+                    if (!at)
                     {
-                        if (!at)
-                        {
-                            (*dedtypes)[i] = tt;
-                            *wm |= wx;
-                            goto Lconst;
-                        }
-
-                        if (tt->equals(at))
-                        {
-                            goto Lconst;
-                        }
-                        if (tt->implicitConvTo(at->constOf()))
-                        {
-                            (*dedtypes)[i] = at->constOf()->mutableOf();
-                            *wm |= MODconst;
-                            goto Lconst;
-                        }
-                        if (at->implicitConvTo(tt->constOf()))
-                        {
-                            (*dedtypes)[i] = tt->constOf()->mutableOf();
-                            *wm |= MODconst;
-                            goto Lconst;
-                        }
-                        goto Lnomatch;
+                        (*dedtypes)[i] = tt;
+                        *wm |= wx;
+                        goto Lconst;
                     }
+
+                    if (tt->equals(at))
+                    {
+                        goto Lconst;
+                    }
+                    if (tt->implicitConvTo(at->constOf()))
+                    {
+                        (*dedtypes)[i] = at->constOf()->mutableOf();
+                        *wm |= MODconst;
+                        goto Lconst;
+                    }
+                    if (at->implicitConvTo(tt->constOf()))
+                    {
+                        (*dedtypes)[i] = tt->constOf()->mutableOf();
+                        *wm |= MODconst;
+                        goto Lconst;
+                    }
+                    goto Lnomatch;
                 }
 
                 MATCH m = deduceTypeHelper(t, &tt, tparam);
@@ -4334,6 +4329,20 @@ MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *par
             if (i == IDX_NOTFOUND)
                 return false;
 
+            Type *t = e->type;
+            Type *tt;
+            if (unsigned char wx = wm ? deduceWildHelper(t, &tt, tparam) : 0)
+            {
+                *wm |= wx;
+                result = MATCHconst;
+            }
+            else
+            {
+                result = deduceTypeHelper(t, &tt, tparam);
+            }
+            if (result <= MATCHnomatch)
+                return true;
+
             Type *at = (Type *)(*dedtypes)[i];
             if (!at)                        // expression vs ()
             {
@@ -4344,8 +4353,12 @@ MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *par
                  *      // 1: deduceType(oarg='1', tparam='T', ...)
                  *      //      T <= TypeTypeof(1)
                  */
+                if (t != tt)
+                {
+                    e = e->copy();
+                    e->type = tt;
+                }
                 (*dedtypes)[i] = new TypeTypeof(e->loc, e);
-                result = MATCHexact;        // TODO
             }
             else if (at->ty == Ttypeof)     // expression vs expression
             {
@@ -4364,12 +4377,17 @@ MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *par
                     idexp = new IdentifierExp(Loc(), Id::empty);
                     idexp->type = Type::tbool;
                 }
-                CondExp *condexp = new CondExp(Loc(), idexp, ((TypeTypeof *)at)->exp, e);
+                CondExp *condexp = new CondExp(e->loc, idexp, ((TypeTypeof *)at)->exp, e);
+                unsigned olderrors = global.startGagging();
                 Expression *ec = condexp->semantic(sc);
+                if (global.endGagging(olderrors))
+                {
+                    result = MATCHnomatch;
+                    return true;
+                }
                 if (ec == condexp)
                 {
                     ((TypeTypeof *)at)->exp = condexp;
-                    result = MATCHexact;    // TODO
                 }
             }
             else                            // expression vs type
@@ -4454,6 +4472,10 @@ MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *par
                 e->type->nextOf()->sarrayOf(e->elements->dim)->accept(this);
                 return;
             }
+
+            if (deduceExpType(e))   // Bugzilla 13026
+                return;
+
             visit((Expression *)e);
         }
 
@@ -5939,6 +5961,7 @@ void TemplateInstance::tryExpandMembers(Scope *sc2)
     }
 
     expandMembers(sc2);
+
     nest--;
 }
 
@@ -5946,6 +5969,7 @@ void TemplateInstance::trySemantic3(Scope *sc2)
 {
     // extracted to a function to allow windows SEH to work without destructors in the same function
     static int nest;
+    //printf("%d\n", nest);
     if (++nest > 300)
     {
         global.gag = 0;            // ensure error message gets printed

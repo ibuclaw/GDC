@@ -122,10 +122,13 @@ Type::genTypeInfo(Scope *sc)
 	{
 	  if (sc)
 	    {
-	      // Find module that will go all the way to an object file
-	      Module *m = sc->module->importedFrom;
-	      m->members->push(t->vtinfo);
-	      semanticTypeInfo(sc, t);
+	      if (!sc->func || sc->func->isInstantiated() || !sc->func->inNonRoot())
+		{
+		  // Find module that will go all the way to an object file
+		  Module *m = sc->module->importedFrom;
+		  m->members->push(t->vtinfo);
+		  semanticTypeInfo(sc, t);
+		}
 	    }
 	  else
 	    t->vtinfo->toObjFile(0);
@@ -141,7 +144,7 @@ Type::genTypeInfo(Scope *sc)
 Expression *
 Type::getTypeInfo(Scope *sc)
 {
-  gcc_assert(this->ty == Terror);
+  gcc_assert(this->ty != Terror);
   this->genTypeInfo(sc);
   Expression *e = VarExp::create(Loc(), this->vtinfo);
   e = e->addressOf();

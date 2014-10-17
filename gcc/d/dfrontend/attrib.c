@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/attrib.c
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -426,8 +427,6 @@ Scope *StorageClassDeclaration::newScope(Scope *sc)
         scstc &= ~(STCgshared | STCshared | STCtls);
     if (stc & (STCsafe | STCtrusted | STCsystem))
         scstc &= ~(STCsafe | STCtrusted | STCsystem);
-    if (stc & (STCfinal | STCvirtual))
-        scstc &= ~(STCfinal | STCvirtual);
     scstc |= stc;
     //printf("scstc = x%llx\n", scstc);
 
@@ -457,7 +456,6 @@ const char *StorageClassDeclaration::stcToChars(char tmp[], StorageClass& stc)
         { STCextern,       TOKextern },
         { STCconst,        TOKconst },
         { STCfinal,        TOKfinal },
-        { STCvirtual,      TOKvirtual },
         { STCabstract,     TOKabstract },
         { STCsynchronized, TOKsynchronized },
         { STCdeprecated,   TOKdeprecated },
@@ -640,21 +638,10 @@ Scope *ProtDeclaration::newScope(Scope *sc)
     return createNewScope(sc, sc->stc, sc->linkage, this->protection, 1, sc->structalign);
 }
 
-void ProtDeclaration::protectionToCBuffer(OutBuffer *buf, PROT protection)
-{
-    const char *p;
-
-    p = Pprotectionnames[protection];
-
-    assert(p);
-
-    buf->writestring(p);
-    buf->writeByte(' ');
-}
-
 void ProtDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
-    protectionToCBuffer(buf, protection);
+    protectionToBuffer(buf, protection);
+    buf->writeByte(' ');
     AttribDeclaration::toCBuffer(buf, hgs);
 }
 

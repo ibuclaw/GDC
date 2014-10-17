@@ -1,11 +1,13 @@
 
-// Copyright (c) 1999-2014 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/cast.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -1288,6 +1290,8 @@ Type *toStaticArrayType(SliceExp *e)
 {
     if (e->lwr && e->upr)
     {
+        // For the following code to work, e should be optimized beforehand.
+        // (eg. $ in lwr and upr should be already resolved, if possible)
         Expression *lwr = e->lwr->optimize(WANTvalue);
         Expression *upr = e->upr->optimize(WANTvalue);
         if (lwr->isConst() && upr->isConst())
@@ -3403,11 +3407,28 @@ IntRange getIntRange(Expression *e)
             range = IntRange(ir1.imin >> ir2.imax, ir1.imax >> ir2.imin).cast(e->type);
         }
 
+        void visit(AssignExp *e)
+        {
+            range = getIntRange(e->e2).cast(e->type);
+        }
+
+        void visit(CondExp *e)
+        {
+            // No need to check e->econd; assume caller has called optimize()
+            IntRange ir1 = getIntRange(e->e1);
+            IntRange ir2 = getIntRange(e->e2);
+            range = ir1.unionWith(ir2).cast(e->type);
+        }
+
         void visit(VarExp *e)
         {
+            Expression *ie;
             VarDeclaration* vd = e->var->isVarDeclaration();
             if (vd && vd->range)
-                range = *vd->range;
+                range = vd->range->cast(e->type);
+            else if (vd && vd->init && !vd->type->isMutable() &&
+                (ie = vd->getConstInitializer()))
+                ie->accept(this);
             else
                 visit((Expression *)e);
         }

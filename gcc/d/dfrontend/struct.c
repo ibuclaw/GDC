@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/struct.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -26,29 +27,6 @@ TypeTuple *toArgTypes(Type *t);
 
 FuncDeclaration *StructDeclaration::xerreq;     // object.xopEquals
 FuncDeclaration *StructDeclaration::xerrcmp;    // object.xopCmp
-
-/***************************************
- * Search toHash member function for TypeInfo_Struct.
- *      const hash_t toHash();
- */
-FuncDeclaration *search_toHash(StructDeclaration *sd)
-{
-    Dsymbol *s = search_function(sd, Id::tohash);
-    FuncDeclaration *fd = s ? s->isFuncDeclaration() : NULL;
-    if (fd)
-    {
-        static TypeFunction *tftohash;
-        if (!tftohash)
-        {
-            tftohash = new TypeFunction(NULL, Type::thash_t, 0, LINKd);
-            tftohash->mod = MODconst;
-            tftohash = (TypeFunction *)tftohash->merge();
-        }
-
-        fd = fd->overloadExactMatch(tftohash);
-    }
-    return fd;
-}
 
 /***************************************
  * Search toString member function for TypeInfo_Struct.
@@ -116,7 +94,7 @@ void semanticTypeInfo(Scope *sc, Type *t)
                  sd->xcmp && sd->xcmp != sd->xerrcmp ||
                  (sd->postblit && !(sd->postblit->storage_class & STCdisable)) ||
                  sd->dtor ||
-                 search_toHash(sd) ||
+                 sd->xhash ||
                  search_toString(sd)
                 ) &&
                 sd->inNonRoot())
@@ -311,12 +289,11 @@ void StructDeclaration::semanticTypeInfoMembers()
         ftostr->semantic3(ftostr->scope);
     }
 
-    FuncDeclaration *ftohash = search_toHash(this);
-    if (ftohash &&
-        ftohash->scope &&
-        ftohash->semanticRun < PASSsemantic3done)
+    if (xhash &&
+        xhash->scope &&
+        xhash->semanticRun < PASSsemantic3done)
     {
-        ftohash->semantic3(ftohash->scope);
+        xhash->semantic3(xhash->scope);
     }
 
     if (postblit &&
@@ -431,15 +408,11 @@ void AggregateDeclaration::alignmember(
             break;
 
         case (structalign_t) STRUCTALIGN_DEFAULT:
-        {
-            /* Must match what the corresponding C compiler's default
-             * alignment behavior is.
-             */
-            assert(size != 3);
-            unsigned sa = (size == 0 || 8 < size) ? 8 : size;
-            *poffset = (*poffset + sa - 1) & ~(sa - 1);
+            // Alignment in Target::fieldalignsize must match what the
+            // corresponding C compiler's default alignment behavior is.
+            assert(size > 0 && !(size & (size - 1)));
+            *poffset = (*poffset + size - 1) & ~(size - 1);
             break;
-        }
 
         default:
             // Align on alignment boundary, which must be a positive power of 2
@@ -652,6 +625,7 @@ StructDeclaration::StructDeclaration(Loc loc, Identifier *id)
 
     xeq = NULL;
     xcmp = NULL;
+    xhash = NULL;
     alignment = 0;
     ispod = ISPODfwd;
     arg1type = NULL;
@@ -859,6 +833,7 @@ void StructDeclaration::semantic(Scope *sc)
 
     xeq = buildXopEquals(this, sc2);
     xcmp = buildXopCmp(this, sc2);
+    xhash = buildXtoHash(this, sc2);
 
     /* Even if the struct is merely imported and its semantic3 is not run,
      * the TypeInfo object would be speculatively stored in each object

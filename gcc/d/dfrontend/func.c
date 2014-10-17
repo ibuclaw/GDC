@@ -1,11 +1,13 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2014 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/func.c
+ */
 
 #include <stdio.h>
 #include <assert.h>
@@ -365,7 +367,6 @@ void FuncDeclaration::semantic(Scope *sc)
 {
     TypeFunction *f;
     AggregateDeclaration *ad;
-    ClassDeclaration *cd;
     InterfaceDeclaration *id;
 
 #if 0
@@ -444,7 +445,7 @@ void FuncDeclaration::semantic(Scope *sc)
     if (!type->deco)
     {
         sc = sc->push();
-        sc->stc |= storage_class & STCdisable;  // forward to function type
+        sc->stc |= storage_class & (STCdisable | STCdeprecated);  // forward to function type
         TypeFunction *tf = (TypeFunction *)type;
 #if 1
         /* If the parent is @safe, then this function defaults to safe
@@ -472,6 +473,8 @@ void FuncDeclaration::semantic(Scope *sc)
         if (tf->isnogc)     sc->stc |= STCnogc;
         if (tf->isproperty) sc->stc |= STCproperty;
         if (tf->purity == PUREfwdref)   sc->stc |= STCpure;
+        if (tf->trust != TRUSTdefault)
+            sc->stc &= ~(STCsafe | STCsystem | STCtrusted);
         if (tf->trust == TRUSTsafe)     sc->stc |= STCsafe;
         if (tf->trust == TRUSTsystem)   sc->stc |= STCsystem;
         if (tf->trust == TRUSTtrusted)  sc->stc |= STCtrusted;
@@ -606,21 +609,13 @@ void FuncDeclaration::semantic(Scope *sc)
     if (storage_class & STCscope)
         error("functions cannot be scope");
 
-    if (storage_class & STCvirtual)
-    {
-        if (ad && ad->isStructDeclaration())
-            error("struct member functions cannot be virtual");
-        else if (isStatic())
-            error("static member functions cannot be virtual");
-    }
-
     if (isAbstract() && !isVirtual())
     {
         const char *sfunc;
         if (isStatic())
             sfunc = "static";
         else if (protection == PROTprivate || protection == PROTpackage)
-            sfunc = Pprotectionnames[protection];
+            sfunc = protectionToChars(protection);
         else
             sfunc = "non-virtual";
         error("%s functions cannot be abstract", sfunc);
@@ -629,7 +624,7 @@ void FuncDeclaration::semantic(Scope *sc)
     if (isOverride() && !isVirtual())
     {
         if ((prot() == PROTprivate || prot() == PROTpackage) && isMember())
-            error("%s method is not virtual and cannot override", Pprotectionnames[prot()]);
+            error("%s method is not virtual and cannot override", protectionToChars(prot()));
         else
             error("cannot override a non-virtual function");
     }
@@ -652,15 +647,6 @@ void FuncDeclaration::semantic(Scope *sc)
     }
 #endif
 
-    StructDeclaration *sd = parent->isStructDeclaration();
-    if (sd)
-    {
-        if (isCtorDeclaration())
-        {
-            goto Ldone;
-        }
-    }
-
     id = parent->isInterfaceDeclaration();
     if (id)
     {
@@ -681,15 +667,18 @@ void FuncDeclaration::semantic(Scope *sc)
     if (!fbody && (fensure || frequire) && !(id && isVirtual()))
         error("in and out contracts require function body");
 
-    cd = parent->isClassDeclaration();
-    if (cd)
+    if (StructDeclaration *sd = parent->isStructDeclaration())
     {
-        int vi;
         if (isCtorDeclaration())
         {
-//          ctor = (CtorDeclaration *)this;
-//          if (!cd->ctor)
-//              cd->ctor = ctor;
+            goto Ldone;
+        }
+    }
+
+    if (ClassDeclaration *cd = parent->isClassDeclaration())
+    {
+        if (isCtorDeclaration())
+        {
             goto Ldone;
         }
 
@@ -737,8 +726,8 @@ void FuncDeclaration::semantic(Scope *sc)
         /* Find index of existing function in base class's vtbl[] to override
          * (the index will be the same as in cd's current vtbl[])
          */
-        vi = cd->baseClass ? findVtblIndex((Dsymbols*)&cd->baseClass->vtbl, (int)cd->baseClass->vtbl.dim)
-                           : -1;
+        int vi = cd->baseClass ? findVtblIndex((Dsymbols*)&cd->baseClass->vtbl, (int)cd->baseClass->vtbl.dim)
+                               : -1;
 
         bool doesoverride = false;
         switch (vi)
@@ -1031,10 +1020,10 @@ void FuncDeclaration::semantic(Scope *sc)
             }
 
             // If it's a member template
-            ClassDeclaration *cd2 = ti->tempdecl->isClassMember();
-            if (cd2)
+            ClassDeclaration *cd = ti->tempdecl->isClassMember();
+            if (cd)
             {
-                error("cannot use template to add virtual function to class '%s'", cd2->toChars());
+                error("cannot use template to add virtual function to class '%s'", cd->toChars());
             }
         }
     }
@@ -1271,7 +1260,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->fes = fes;
         sc2->linkage = LINKd;
         sc2->stc &= ~(STCauto | STCscope | STCstatic | STCabstract |
-                        STCdeprecated | STCoverride | STCvirtual |
+                        STCdeprecated | STCoverride |
                         STC_TYPECTOR | STCfinal | STCtls | STCgshared | STCref |
                         STCproperty | STCnothrow | STCpure | STCsafe | STCtrusted | STCsystem);
         sc2->protection = PROTpublic;
@@ -2021,7 +2010,7 @@ void FuncDeclaration::semantic3(Scope *sc)
                 a->push(s);
             }
 
-            fbody = new CompoundStatement(Loc(), a);
+            Statement *sbody = new CompoundStatement(Loc(), a);
             /* Append destructor calls for parameters as finally blocks.
              */
             if (parameters)
@@ -2048,10 +2037,10 @@ void FuncDeclaration::semantic3(Scope *sc)
                             ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                         if (flags & FUNCFLAGnothrowInprocess && blockexit & BEthrow)
                             f->isnothrow = false;
-                        if (fbody->blockExit(this, f->isnothrow) == BEfallthru)
-                            fbody = new CompoundStatement(Loc(), fbody, s);
+                        if (sbody->blockExit(this, f->isnothrow) == BEfallthru)
+                            sbody = new CompoundStatement(Loc(), sbody, s);
                         else
-                            fbody = new TryFinallyStatement(Loc(), fbody, s);
+                            sbody = new TryFinallyStatement(Loc(), sbody, s);
                     }
                 }
             }
@@ -2068,7 +2057,7 @@ void FuncDeclaration::semantic3(Scope *sc)
                 {
                     if (!global.params.is64bit &&
                         global.params.isWindows &&
-                        !isStatic() && !fbody->usesEH() && !global.params.trace)
+                        !isStatic() && !sbody->usesEH() && !global.params.trace)
                     {
                         /* The back end uses the "jmonitor" hack for syncing;
                          * no need to do the sync at this level.
@@ -2087,9 +2076,9 @@ void FuncDeclaration::semantic3(Scope *sc)
                             // 'this' is the monitor
                             vsync = new VarExp(loc, vthis);
                         }
-                        fbody = new PeelStatement(fbody);       // don't redo semantic()
-                        fbody = new SynchronizedStatement(loc, vsync, fbody);
-                        fbody = fbody->semantic(sc2);
+                        sbody = new PeelStatement(sbody);       // don't redo semantic()
+                        sbody = new SynchronizedStatement(loc, vsync, sbody);
+                        sbody = sbody->semantic(sc2);
                     }
                 }
                 else
@@ -2097,6 +2086,11 @@ void FuncDeclaration::semantic3(Scope *sc)
                     error("synchronized function %s must be a member of a class", toChars());
                 }
             }
+
+            // If declaration has no body, don't set sbody to prevent incorrect codegen.
+            InterfaceDeclaration *id = parent->isInterfaceDeclaration();
+            if (fbody || id && (fdensure || fdrequire) && isVirtual())
+                fbody = sbody;
         }
 
         // Fix up forward-referenced gotos

@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/dsymbol.c
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -32,8 +33,6 @@
 #include "template.h"
 #include "attrib.h"
 #include "enum.h"
-
-const char* Pprotectionnames[] = {NULL, "none", "private", "package", "protected", "public", "export"};
 
 
 /****************************** Dsymbol ******************************/
@@ -535,11 +534,6 @@ ClassDeclaration *Dsymbol::isClassMember()      // are we a member of a class?
 {
     AggregateDeclaration *ad = isAggregateMember();
     return ad ? ad->isClassDeclaration() : NULL;
-}
-
-void Dsymbol::defineRef(Dsymbol *s)
-{
-    assert(0);
 }
 
 bool Dsymbol::isExport()
@@ -1050,15 +1044,6 @@ bool ScopeDsymbol::isforwardRef()
     return (members == NULL);
 }
 
-void ScopeDsymbol::defineRef(Dsymbol *s)
-{
-    ScopeDsymbol *ss;
-
-    ss = s->isScopeDsymbol();
-    members = ss->members;
-    ss->members = NULL;
-}
-
 void ScopeDsymbol::multiplyDefined(Loc loc, Dsymbol *s1, Dsymbol *s2)
 {
 #if 0
@@ -1080,28 +1065,6 @@ void ScopeDsymbol::multiplyDefined(Loc loc, Dsymbol *s1, Dsymbol *s2)
             s2->toPrettyChars(),
             s2->locToChars());
     }
-}
-
-Dsymbol *ScopeDsymbol::nameCollision(Dsymbol *s)
-{
-    Dsymbol *sprev;
-
-    // Look to see if we are defining a forward referenced symbol
-
-    sprev = symtab->lookup(s->ident);
-    assert(sprev);
-    if (s->equals(sprev))               // if the same symbol
-    {
-        if (s->isforwardRef())          // if second declaration is a forward reference
-            return sprev;
-        if (sprev->isforwardRef())
-        {
-            sprev->defineRef(s);        // copy data from s into sprev
-            return sprev;
-        }
-    }
-    multiplyDefined(Loc(), s, sprev);
-    return sprev;
 }
 
 const char *ScopeDsymbol::kind()

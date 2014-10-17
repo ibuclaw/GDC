@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/mtype.c
+ */
 
 #define __C99FEATURES__ 1       // Needed on Solaris for NaN and more
 #define __USE_ISOC99 1          // so signbit() gets defined
@@ -2586,6 +2587,10 @@ void TypeNext::checkDeprecated(Loc loc, Scope *sc)
 
 int TypeNext::hasWild()
 {
+    if (ty == Tfunction)
+        return 0;
+    if (ty == Tdelegate)
+        return Type::hasWild();
     return mod & MODwild || (next && next->hasWild());
 }
 
@@ -4704,49 +4709,79 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
             error(loc, "can't have associative array key of %s", index->toBasetype()->toChars());
         case Terror:
             return Type::terror;
-        case Tstruct:
-        {
-            /* AA's need opEquals and opCmp. Issue error if not correctly set up.
-             */
-            StructDeclaration *sd = ((TypeStruct *)index->toBasetype())->sym;
-            if (sd->scope)
-                sd->semantic(NULL);
-
-            // duplicate a part of StructDeclaration::semanticTypeInfoMembers
-            if (sd->xeq &&
-                sd->xeq->scope &&
-                sd->xeq->semanticRun < PASSsemantic3done)
-            {
-                unsigned errors = global.startGagging();
-                sd->xeq->semantic3(sd->xeq->scope);
-                if (global.endGagging(errors))
-                    sd->xeq = sd->xerreq;
-            }
-
-            if (sd->xcmp &&
-                sd->xcmp->scope &&
-                sd->xcmp->semanticRun < PASSsemantic3done)
-            {
-                unsigned errors = global.startGagging();
-                sd->xcmp->semantic3(sd->xcmp->scope);
-                if (global.endGagging(errors))
-                    sd->xcmp = sd->xerrcmp;
-            }
-
-            if (sd->xeq == sd->xerreq)
-            {
-                error(loc, "associative array key type %s does not have 'const bool opEquals(ref const %s)' member function",
-                        index->toBasetype()->toChars(), sd->toChars());
-                return Type::terror;
-            }
-            // the opCmp requirement can go away once druntime fully switched to using opEquals
-            if (sd->xcmp == sd->xerrcmp)
-            {
-                error(loc, "associative array key type %s does not have 'const int opCmp(ref const %s)' member function",
-                        index->toBasetype()->toChars(), sd->toChars());
-                return Type::terror;
-            }
+        default:
             break;
+    }
+    Type *tbase = index->baseElemOf();
+    while (tbase->ty == Tarray)
+        tbase = tbase->nextOf()->baseElemOf();
+    if (tbase->ty == Tstruct)
+    {
+        /* AA's need typeid(index).equals() and getHash(). Issue error if not correctly set up.
+         */
+        StructDeclaration *sd = ((TypeStruct *)tbase)->sym;
+        if (sd->scope)
+            sd->semantic(NULL);
+
+        // duplicate a part of StructDeclaration::semanticTypeInfoMembers
+        if (sd->xeq &&
+            sd->xeq->scope &&
+            sd->xeq->semanticRun < PASSsemantic3done)
+        {
+            unsigned errors = global.startGagging();
+            sd->xeq->semantic3(sd->xeq->scope);
+            if (global.endGagging(errors))
+                sd->xeq = sd->xerreq;
+        }
+
+        //printf("AA = %s, key: xeq = %p, xhash = %p\n", toChars(), sd->xeq, sd->xhash);
+        const char *s = (index->toBasetype()->ty != Tstruct) ? "bottom of " : "";
+        if (!sd->xeq)
+        {
+            // If sd->xhash != NULL:
+            //   sd or its fields have user-defined toHash.
+            //   AA assumes that its result is consistent with bitwise equality.
+            // else:
+            //   bitwise equality & hashing
+        }
+        else if (sd->xeq == sd->xerreq)
+        {
+            if (search_function(sd, Id::eq))
+            {
+                error(loc, "%sAA key type %s does not have 'bool opEquals(ref const %s) const'",
+                        s, sd->toChars(), sd->toChars());
+            }
+            else
+            {
+                error(loc, "%sAA key type %s does not support const equality",
+                        s, sd->toChars());
+            }
+            return Type::terror;
+        }
+        else if (!sd->xhash)
+        {
+            if (search_function(sd, Id::eq))
+            {
+                error(loc, "%sAA key type %s should have 'size_t toHash() const nothrow @safe' if opEquals defined",
+                        s, sd->toChars());
+            }
+            else
+            {
+                error(loc, "%sAA key type %s supports const equality but doesn't support const hashing",
+                        s, sd->toChars());
+            }
+            return Type::terror;
+        }
+        else
+        {
+            // defined equality & hashing
+            assert(sd->xeq && sd->xhash);
+
+            /* xeq and xhash may be implicitly defined by compiler. For example:
+             *   struct S { int[] arr; }
+             * With 'arr' field equality and hashing, compiler will implicitly
+             * generate functions for xopEquals and xtoHash in TypeInfo_Struct.
+             */
         }
     }
     next = next->semantic(loc,sc)->merge2();
@@ -5550,8 +5585,7 @@ Type *TypeFunction::semantic(Loc loc, Scope *sc)
             error(loc, "functions cannot return scope %s", tf->next->toChars());
             errors = true;
         }
-        if (tf->next->hasWild() &&
-            !(tf->next->ty == Tpointer && tf->next->nextOf()->ty == Tfunction || tf->next->ty == Tdelegate))
+        if (tf->next->hasWild())
             wildreturn = true;
     }
 
@@ -5611,15 +5645,14 @@ Type *TypeFunction::semantic(Loc loc, Scope *sc)
                         tv = tv->nextOf()->toBasetype();
                     if (tv->ty == Tstruct && ((TypeStruct *)tv)->sym->noDefaultCtor)
                     {
-                        error(loc, "cannot have out parameter of type %s because the default construction is disbaled",
+                        error(loc, "cannot have out parameter of type %s because the default construction is disabled",
                             fparam->type->toChars());
                         errors = true;
                     }
                 }
             }
 
-            if (t->hasWild() &&
-                !(t->ty == Tpointer && t->nextOf()->ty == Tfunction || t->ty == Tdelegate))
+            if (t->hasWild())
             {
                 wildparams |= 1;
                 //if (tf->next && !wildreturn)
@@ -5765,71 +5798,76 @@ Type *TypeFunction::semantic(Loc loc, Scope *sc)
 void TypeFunction::purityLevel()
 {
     TypeFunction *tf = this;
-    if (tf->purity == PUREfwdref)
-    {   /* Evaluate what kind of purity based on the modifiers for the parameters
-         */
-        tf->purity = PUREstrong;        // assume strong until something weakens it
-        if (tf->parameters)
+    if (tf->purity != PUREfwdref)
+        return;
+
+    /* Evaluate what kind of purity based on the modifiers for the parameters
+     */
+    tf->purity = PUREstrong;        // assume strong until something weakens it
+
+    size_t dim = Parameter::dim(tf->parameters);
+    if (!dim)
+        return;
+    for (size_t i = 0; i < dim; i++)
+    {
+        Parameter *fparam = Parameter::getNth(tf->parameters, i);
+        Type *t = fparam->type;
+        if (!t)
+            continue;
+
+        if (fparam->storageClass & (STClazy | STCout))
         {
-            size_t dim = Parameter::dim(tf->parameters);
-            for (size_t i = 0; i < dim; i++)
-            {   Parameter *fparam = Parameter::getNth(tf->parameters, i);
-                if (fparam->storageClass & STClazy)
-                {
-                    tf->purity = PUREweak;
-                    break;
-                }
-                if (fparam->storageClass & STCout)
-                {
-                    tf->purity = PUREweak;
-                    break;
-                }
-                if (!fparam->type)
-                    continue;
-                if (fparam->storageClass & STCref)
-                {
-                    if (!(fparam->type->mod & (MODconst | MODimmutable | MODwild)))
-                    {   tf->purity = PUREweak;
-                        break;
-                    }
-                    if (fparam->type->mod & MODconst)
-                    {   tf->purity = PUREconst;
-                        continue;
-                    }
-                }
-                Type *t = fparam->type->toBasetype();
-                if (!t->hasPointers())
-                    continue;
-                if (t->mod & MODimmutable)
-                    continue;
-                /* The rest of this is too strict; fix later.
-                 * For example, the only pointer members of a struct may be immutable,
-                 * which would maintain strong purity.
-                 */
-                if (t->mod & (MODconst | MODwild))
-                {   tf->purity = PUREconst;
-                    continue;
-                }
-                Type *tn = t->nextOf();
-                if (tn)
-                {   tn = tn->toBasetype();
-                    if (tn->ty == Tpointer || tn->ty == Tarray)
-                    {   /* Accept immutable(T)* and immutable(T)[] as being strongly pure
-                         */
-                        if (tn->mod & MODimmutable)
-                            continue;
-                        if (tn->mod & (MODconst | MODwild))
-                        {   tf->purity = PUREconst;
-                            continue;
-                        }
-                    }
-                }
-                /* Should catch delegates and function pointers, and fold in their purity
-                 */
-                tf->purity = PUREweak;          // err on the side of too strict
-                break;
+            tf->purity = PUREweak;
+            break;
+        }
+        if (fparam->storageClass & STCref)
+        {
+            if (t->mod & MODimmutable)
+                continue;
+            if (t->mod & (MODconst | MODwild))
+            {
+                tf->purity = PUREconst;
+                continue;
+            }
+            tf->purity = PUREweak;
+            break;
+        }
+
+        t = t->baseElemOf();
+        if (!t->hasPointers())
+            continue;
+        if (t->mod & MODimmutable)
+            continue;
+
+        /* Accept immutable(T)[] and immutable(T)* as being strongly pure
+         */
+        if (t->ty == Tarray || t->ty == Tpointer)
+        {
+            Type *tn = t->nextOf()->toBasetype();
+            if (tn->mod & MODimmutable)
+                continue;
+            if (tn->mod & (MODconst | MODwild))
+            {
+                tf->purity = PUREconst;
+                continue;
             }
         }
+
+        /* The rest of this is too strict; fix later.
+         * For example, the only pointer members of a struct may be immutable,
+         * which would maintain strong purity.
+         */
+        if (t->mod & (MODconst | MODwild))
+        {
+            tf->purity = PUREconst;
+            continue;
+        }
+
+        /* Should catch delegates and function pointers, and fold in their purity
+         */
+
+        tf->purity = PUREweak;          // err on the side of too strict
+        break;
     }
 }
 
@@ -6192,9 +6230,6 @@ Type *TypeFunction::addStorageClass(StorageClass stc)
     return t;
 }
 
-// in hdrgen.c
-void trustToBuffer(OutBuffer *buf, TRUST trust);
-
 /** For each active attribute (ref/const/nogc/etc) call fp with a void* for the
 work param and a string representation of the attribute. */
 int TypeFunction::attributesApply(void *param, int (*fp)(void *, const char *), TRUSTformat trustFormat)
@@ -6227,10 +6262,7 @@ int TypeFunction::attributesApply(void *param, int (*fp)(void *, const char *), 
             return res;  // avoid calling with an empty string
     }
 
-    OutBuffer buf;
-    trustToBuffer(&buf, trustAttrib);
-    res = fp(param, buf.extractString());
-    return res;
+    return fp(param, trustToChars(trustAttrib));
 }
 
 /***************************** TypeDelegate *****************************/
@@ -7850,13 +7882,13 @@ Expression *TypeStruct::dotExp(Scope *sc, Expression *e, Identifier *ident, int 
 
         Expression *e0 = NULL;
         Expression *ev = e->op == TOKtype ? NULL : e;
-        if (sc->func && ev && hasSideEffect(ev))
+        if (sc->func && ev && !isTrivialExp(ev))
         {
             Identifier *id = Lexer::uniqueId("__tup");
             ExpInitializer *ei = new ExpInitializer(e->loc, ev);
             VarDeclaration *vd = new VarDeclaration(e->loc, NULL, id, ei);
-            vd->storage_class |= STCtemp | STCctfe | STCref | STCforeach;
-
+            vd->storage_class |= STCtemp | STCctfe
+                              | (ev->isLvalue() ? STCref | STCforeach : STCrvalue);
             e0 = new DeclarationExp(e->loc, vd);
             ev = new VarExp(e->loc, vd);
         }
@@ -8407,13 +8439,13 @@ Expression *TypeClass::dotExp(Scope *sc, Expression *e, Identifier *ident, int f
 
         Expression *e0 = NULL;
         Expression *ev = e->op == TOKtype ? NULL : e;
-        if (sc->func && ev && hasSideEffect(ev))
+        if (sc->func && ev && !isTrivialExp(ev))
         {
             Identifier *id = Lexer::uniqueId("__tup");
             ExpInitializer *ei = new ExpInitializer(e->loc, ev);
             VarDeclaration *vd = new VarDeclaration(e->loc, NULL, id, ei);
-            vd->storage_class |= STCtemp | STCctfe | STCref | STCforeach;
-
+            vd->storage_class |= STCtemp | STCctfe
+                              | (ev->isLvalue() ? STCref | STCforeach : STCrvalue);
             e0 = new DeclarationExp(e->loc, vd);
             ev = new VarExp(e->loc, vd);
         }
@@ -8546,6 +8578,8 @@ L1:
         }
         if (ident == Id::outer && sym->vthis)
         {
+            if (sym->vthis->scope)
+                sym->vthis->semantic(NULL);
             s = sym->vthis;
         }
         else

@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2011 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/declaration.h
+ */
 
 #ifndef DMD_DECLARATION_H
 #define DMD_DECLARATION_H
@@ -85,12 +86,11 @@ enum PURE;
 #define STCnodefaultctor 0x8000000000LL  // must be set inside constructor
 #define STCtemp          0x10000000000LL // temporary variable
 #define STCrvalue        0x20000000000LL // force rvalue for variables
-#define STCvirtual       0x40000000000LL
-#define STCnogc          0x80000000000LL  // @nogc
+#define STCnogc          0x40000000000LL  // @nogc
 
 const StorageClass STCStorageClass = (STCauto | STCscope | STCstatic | STCextern | STCconst | STCfinal |
     STCabstract | STCsynchronized | STCdeprecated | STCoverride | STClazy | STCalias |
-    STCout | STCin | STCvirtual |
+    STCout | STCin |
     STCmanifest | STCimmutable | STCshared | STCwild | STCnothrow | STCnogc | STCpure | STCref | STCtls |
     STCgshared | STCproperty | STCsafe | STCtrusted | STCsystem | STCdisable);
 

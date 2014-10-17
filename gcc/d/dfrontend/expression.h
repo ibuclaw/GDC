@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/expression.h
+ */
 
 #ifndef DMD_EXPRESSION_H
 #define DMD_EXPRESSION_H
@@ -90,6 +91,7 @@ Expression *resolveOpDollar(Scope *sc, ArrayExp *ae, Expression **pe0);
 Expression *resolveOpDollar(Scope *sc, SliceExp *se, Expression **pe0);
 Expression *integralPromotions(Expression *e, Scope *sc);
 void discardValue(Expression *e);
+bool isTrivialExp(Expression *e);
 
 int isConst(Expression *e);
 Expression *toDelegate(Expression *e, Scope *sc);
@@ -163,7 +165,7 @@ public:
     void error(const char *format, ...);
     void warning(const char *format, ...);
     void deprecation(const char *format, ...);
-    virtual int rvalue(bool allowVoid = false);
+    virtual bool rvalue();
 
     // creates a single expression which is effectively (e1, e2)
     // this new expression does not necessarily need to have valid D source code representation,
@@ -205,6 +207,7 @@ public:
     void checkNoBool();
     Expression *checkIntegral();
     Expression *checkArithmetic();
+    Expression *checkReadModifyWrite(TOK rmwOp, Expression *exp = NULL);
     void checkDeprecated(Scope *sc, Dsymbol *s);
     void checkPurity(Scope *sc, FuncDeclaration *f);
     void checkPurity(Scope *sc, VarDeclaration *v);
@@ -212,12 +215,6 @@ public:
     void checkNogc(Scope *sc, FuncDeclaration *f);
     bool checkPostblit(Scope *sc, Type *t);
     virtual int checkModifiable(Scope *sc, int flag = 0);
-
-    // check whether the expression allows RMW operations, error with rmw operator diagnostic if not.
-    // exp is the RHS expression, or NULL if ++/-- is used (for diagnostics)
-    Expression *readModifyWrite(TOK rmwOp, Expression *exp = NULL);
-    virtual bool checkReadModifyWrite();  // return true if the expression allows RMW operations.
-
     virtual Expression *checkToBoolean(Scope *sc);
     virtual Expression *addDtorHook(Scope *sc);
     Expression *checkToPointer();
@@ -576,7 +573,7 @@ public:
     TypeExp(Loc loc, Type *type);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
-    int rvalue(bool allowVoid = false);
+    bool rvalue();
     elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -600,7 +597,7 @@ public:
     FuncDeclaration *fd;
 
     TemplateExp(Loc loc, TemplateDeclaration *td, FuncDeclaration *fd = NULL);
-    int rvalue(bool allowVoid = false);
+    bool rvalue();
     int isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
@@ -719,6 +716,7 @@ public:
     TOK tok;
 
     FuncExp(Loc loc, FuncLiteralDeclaration *fd, TemplateDeclaration *td = NULL);
+    bool rvalue();
     void genIdent(Scope *sc);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);

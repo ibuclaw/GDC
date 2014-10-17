@@ -1421,7 +1421,7 @@ TypeInfoStructDeclaration::toDt (dt_t **pdt)
     dt_cons (pdt, build_address (sd->toInitializer()->Stree));
 
   // hash_t function(in void*) xtoHash;
-  FuncDeclaration *fdx = search_toHash(sd);
+  FuncDeclaration *fdx = sd->xhash;
   if (fdx)
     {
       TypeFunction *tf = (TypeFunction *) fdx->type;

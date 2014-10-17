@@ -224,12 +224,15 @@ StructDeclaration::toObjFile(bool)
       member->toObjFile(false);
     }
 
-  // Put out xopEquals and xopCmp
+  // Put out xopEquals, xopCmp and xopHash
   if (xeq && xeq != xerreq)
     xeq->toObjFile(false);
 
   if (xcmp && xcmp != xerrcmp)
     xcmp->toObjFile(false);
+
+  if (xhash)
+    xhash->toObjFile(false);
 }
 
 void

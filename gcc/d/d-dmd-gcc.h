@@ -40,7 +40,6 @@ extern Expression *d_gcc_paint_type (Expression *, Type *);
 // Functions defined in the frontend, but used in the glue interface.
 
 // Used in init.cc
-FuncDeclaration *search_toHash(StructDeclaration *);
 FuncDeclaration *search_toString(StructDeclaration *);
 
 // Used in d-lang.cc
