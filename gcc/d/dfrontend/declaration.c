@@ -330,7 +330,7 @@ void TypedefDeclaration::semantic(Scope *sc)
     {
         sem = SemanticIn;
         parent = sc->parent;
-        int errors = global.errors;
+        unsigned int errors = global.errors;
         Type *savedbasetype = basetype;
         basetype = basetype->semantic(loc, sc);
         if (errors != global.errors)
@@ -373,7 +373,7 @@ void TypedefDeclaration::semantic2(Scope *sc)
         if (init)
         {
             Initializer *savedinit = init;
-            int errors = global.errors;
+            unsigned int errors = global.errors;
             init = init->semantic(sc, basetype, INITinterpret);
             if (errors != global.errors || init->isErrorInitializer())
             {
@@ -504,7 +504,7 @@ void AliasDeclaration::semantic(Scope *sc)
     // type. If it is a symbol, then aliassym is set and type is NULL -
     // toAlias() will return aliasssym.
 
-    int errors = global.errors;
+    unsigned int errors = global.errors;
     Type *savedtype = type;
 
     Dsymbol *s;
@@ -797,7 +797,7 @@ bool OverDeclaration::equals(RootObject *o)
             return true;
         if (FuncDeclaration *fd = s->isFuncDeclaration())
         {
-            return fd->isUnique();
+            return fd->isUnique() != NULL;
         }
         if (TemplateDeclaration *td = s->isTemplateDeclaration())
         {
@@ -1518,27 +1518,6 @@ Lnomatch:
         sc->stc &= ~(STC_TYPECTOR | STCpure | STCnothrow | STCnogc | STCref | STCdisable);
 
         ExpInitializer *ei = init->isExpInitializer();
-        if (ei && isScope())
-        {
-            if (ei->exp->op == TOKnew)
-            {
-                // See if initializer is a NewExp that can be allocated on the stack
-                NewExp *ne = (NewExp *)ei->exp;
-                if (!(ne->newargs && ne->newargs->dim))
-                {
-                    ne->onstack = 1;
-                    onstack = 1;
-                    if (type->isBaseOf(ne->newtype->semantic(loc, sc), NULL))
-                        onstack = 2;
-                }
-            }
-            else if (ei->exp->op == TOKfunction)
-            {
-                // or a delegate that doesn't escape a reference to the function
-                FuncDeclaration *f = ((FuncExp *)ei->exp)->fd;
-                f->tookAddressOf--;
-            }
-        }
 
         // If inside function, there is no semantic3() call
         if (sc->func)
@@ -1582,6 +1561,33 @@ Lnomatch:
                 ei->exp = ei->exp->semantic(sc);
                 canassign--;
                 ei->exp->optimize(WANTvalue);
+
+                if (isScope())
+                {
+                    Expression *ex = ei->exp;
+                    while (ex->op == TOKcomma)
+                        ex = ((CommaExp *)ex)->e2;
+                    assert(ex->op == TOKblit || ex->op == TOKconstruct);
+                    ex = ((AssignExp *)ex)->e2;
+                    if (ex->op == TOKnew)
+                    {
+                        // See if initializer is a NewExp that can be allocated on the stack
+                        NewExp *ne = (NewExp *)ex;
+                        if (!(ne->newargs && ne->newargs->dim) && type->toBasetype()->ty == Tclass)
+                        {
+                            ne->onstack = 1;
+                            onstack = 1;
+                            if (type->isBaseOf(ne->newtype->semantic(loc, sc), NULL))
+                                onstack = 2;
+                        }
+                    }
+                    else if (ex->op == TOKfunction)
+                    {
+                        // or a delegate that doesn't escape a reference to the function
+                        FuncDeclaration *f = ((FuncExp *)ex)->fd;
+                        f->tookAddressOf--;
+                    }
+                }
             }
             else
             {

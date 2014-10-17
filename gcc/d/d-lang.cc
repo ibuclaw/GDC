@@ -1129,6 +1129,15 @@ d_parse_file (void)
 	}
     }
 
+  if (global.params.doDocComments && !global.errors && !errorcount)
+    {
+      for (size_t i = 0; i < modules.dim; i++)
+	{
+	  Module *m = modules[i];
+	  gendocfile(m);
+	}
+    }
+
   for (size_t i = 0; i < modules.dim; i++)
     {
       Module *m = modules[i];
@@ -1144,12 +1153,6 @@ d_parse_file (void)
 	    entrypoint->genobjfile (false);
 
 	  m->genobjfile (false);
-	}
-
-      if (!global.errors && !errorcount)
-	{
-	  if (global.params.doDocComments)
-	    gendocfile(m);
 	}
     }
 

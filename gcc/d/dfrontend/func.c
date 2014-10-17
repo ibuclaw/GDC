@@ -33,8 +33,6 @@ void functionToBufferWithIdent(TypeFunction *t, OutBuffer *buf, const char *iden
 void genCmain(Scope *sc);
 void toBufferShort(Type *t, OutBuffer *buf, HdrGenState *hgs);
 
-void checkGC(FuncDeclaration *func, Statement *stmt);
-
 /* A visitor to walk entire statements and provides ability to replace any sub-statements.
  */
 class StatementRewriteWalker : public Visitor
@@ -251,15 +249,15 @@ public:
              *      // equivalent with:
              *      //    s->body; scope(failure) nrvo_var->edtor;
              */
+            Statement *sexception = new DtorExpStatement(Loc(), fd->nrvo_var->edtor, fd->nrvo_var);
             Identifier *id = Lexer::uniqueId("__o");
 
-            Statement *sexception = new DtorExpStatement(Loc(), fd->nrvo_var->edtor, fd->nrvo_var);
-            Statement *handler = sexception;
+            Statement *handler = new PeelStatement(sexception);
             if (sexception->blockExit(fd, false) & BEfallthru)
             {
                 ThrowStatement *ts = new ThrowStatement(Loc(), new IdentifierExp(Loc(), id));
                 ts->internalThrow = true;
-                handler = new CompoundStatement(Loc(), sexception, ts);
+                handler = new CompoundStatement(Loc(), handler, ts);
             }
 
             Catches *catches = new Catches();
@@ -844,7 +842,8 @@ void FuncDeclaration::semantic(Scope *sc)
 
                 doesoverride = true;
                 if (!isOverride())
-                    ::deprecation(loc, "overriding base class function without using override attribute is deprecated (%s overrides %s)", toPrettyChars(), fdv->toPrettyChars());
+                    ::deprecation(loc, "implicitly overriding base class method %s with %s deprecated; add 'override' attribute",
+                        fdv->toPrettyChars(), toPrettyChars());
 
                 if (fdc->toParent() == parent)
                 {
@@ -1296,6 +1295,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         if (this->ident != Id::require && this->ident != Id::ensure)
             sc2->flags = sc->flags & ~SCOPEcontract;
         sc2->tf = NULL;
+        sc2->os = NULL;
         sc2->noctor = 0;
         sc2->speculative = sc->speculative || isSpeculative() != NULL;
         sc2->userAttribDecl = NULL;
@@ -1706,12 +1706,15 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
 
                 // Check for errors related to 'nothrow'.
-                int nothrowErrors = global.errors;
+                unsigned int nothrowErrors = global.errors;
                 int blockexit = fbody->blockExit(this, f->isnothrow);
                 if (f->isnothrow && (global.errors != nothrowErrors) )
                     ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                 if (flags & FUNCFLAGnothrowInprocess)
+                {
+                    if (type == f) f = (TypeFunction *)f->copy();
                     f->isnothrow = !(blockexit & BEthrow);
+                }
                 //printf("callSuper = x%x\n", sc2->callSuper);
 
                 /* Append:
@@ -1730,6 +1733,18 @@ void FuncDeclaration::semantic3(Scope *sc)
             }
             else if (fes)
             {
+                // Check for errors related to 'nothrow'.
+                int nothrowErrors = global.errors;
+                int blockexit = fbody->blockExit(this, f->isnothrow);
+                if (f->isnothrow && (global.errors != nothrowErrors) )
+                    ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
+                if (flags & FUNCFLAGnothrowInprocess)
+                {
+                    if (type == f) f = (TypeFunction *)f->copy();
+                    f->isnothrow = !(blockexit & BEthrow);
+                }
+                //printf("callSuper = x%x\n", sc2->callSuper);
+
                 // For foreach(){} body, append a return 0;
                 Expression *e = new IntegerExp(0);
                 Statement *s = new ReturnStatement(Loc(), e);
@@ -1745,7 +1760,7 @@ void FuncDeclaration::semantic3(Scope *sc)
             else
             {
                 // Check for errors related to 'nothrow'.
-                int nothrowErrors = global.errors;
+                unsigned int nothrowErrors = global.errors;
                 int blockexit = fbody->blockExit(this, f->isnothrow);
                 if (f->isnothrow && (global.errors != nothrowErrors) )
                     ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
@@ -2040,7 +2055,7 @@ void FuncDeclaration::semantic3(Scope *sc)
                     {
                         Statement *s = new ExpStatement(Loc(), e);
                         s = s->semantic(sc2);
-                        int nothrowErrors = global.errors;
+                        unsigned int nothrowErrors = global.errors;
                         bool isnothrow = f->isnothrow & !(flags & FUNCFLAGnothrowInprocess);
                         int blockexit = s->blockExit(this, isnothrow);
                         if (f->isnothrow && (global.errors != nothrowErrors) )
@@ -2111,9 +2126,12 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->pop();
     }
 
-    if (f->isnogc && needsClosure() && setGC())
+    if (needsClosure())
     {
-        error("@nogc function allocates a closure with the GC");
+        if (setGC())
+            error("@nogc function allocates a closure with the GC");
+        else
+            printGCUsage(loc, "using closure causes GC allocation");
     }
 
     /* If function survived being marked as impure, then it is pure
@@ -2138,12 +2156,6 @@ void FuncDeclaration::semantic3(Scope *sc)
         if (type == f) f = (TypeFunction *)f->copy();
         f->isnogc = true;
     }
-
-    if (fbody)
-        checkGC(this, fbody);
-
-    if (needsClosure())
-        printGCUsage(loc, "Using closure causes gc allocation");
 
     // reset deco to apply inference result to mangled name
     if (f != type)
@@ -4008,7 +4020,7 @@ void FuncDeclaration::checkNestedReference(Scope *sc, Loc loc)
             if (fdthis != this)
             {
                 bool found = false;
-                for (int i = 0; i < siblingCallers.dim; ++i)
+                for (size_t i = 0; i < siblingCallers.dim; ++i)
                 {
                     if (siblingCallers[i] == fdthis)
                         found = true;
@@ -4083,7 +4095,7 @@ bool checkEscapingSiblings(FuncDeclaration *f, FuncDeclaration *outerFunc, void 
 
     //printf("checkEscapingSiblings(f = %s, outerfunc = %s)\n", f->toChars(), outerFunc->toChars());
     bool bAnyClosures = false;
-    for (int i = 0; i < f->siblingCallers.dim; ++i)
+    for (size_t i = 0; i < f->siblingCallers.dim; ++i)
     {
         FuncDeclaration *g = f->siblingCallers[i];
         if (g->isThis() || g->tookAddressOf)

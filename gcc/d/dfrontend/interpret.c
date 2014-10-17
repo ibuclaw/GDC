@@ -3059,7 +3059,8 @@ public:
                     for (size_t i = 0; i < exps->dim; i++)
                     {
                         Expression *ex = (*e->arguments)[i];
-                        ex = ex->interpret(istate);
+                        if (ex)
+                            ex = ex->interpret(istate);
                         if (exceptionOrCantInterpret(ex))
                         {
                             result = ex;
@@ -4670,7 +4671,7 @@ public:
             }
             if (!wantRef && !cow && originalExp->e2->isLvalue())
             {
-                Expression *x = evaluatePostblits(istate, existingAE, firstIndex, firstIndex+upperbound-lowerbound);
+                Expression *x = evaluatePostblits(istate, existingAE, (size_t)firstIndex, (size_t)(firstIndex+upperbound-lowerbound));
                 if (exceptionOrCantInterpret(x))
                     return x;
             }
@@ -5179,6 +5180,13 @@ public:
             // Calling a function literal
             fd = ((FuncExp*)((PtrExp*)ecall)->e1)->fd;
         }
+        else if (ecall->op == TOKdelegatefuncptr)
+        {
+            // delegate.funcptr()
+            e->error("cannot evaulate %s at compile time", e->toChars());
+            result = EXP_CANT_INTERPRET;
+            return;
+        }
 
         TypeFunction *tf = fd ? (TypeFunction *)(fd->type) : NULL;
         if (!tf)
@@ -5427,6 +5435,38 @@ public:
             e->error("%s cannot be evaluated at compile time", e->toChars());
             result = EXP_CANT_INTERPRET;
         }
+    }
+
+    void visit(DelegatePtrExp *e)
+    {
+    #if LOG
+        printf("%s DelegatePtrExp::interpret() %s\n", e->loc.toChars(), e->toChars());
+    #endif
+        Expression *e1 = e->e1->interpret(istate);
+        assert(e1);
+        if (exceptionOrCantInterpret(e1))
+        {
+            result = e1;
+            return;
+        }
+        e->error("%s cannot be evaluated at compile time", e->toChars());
+        result = EXP_CANT_INTERPRET;
+    }
+
+    void visit(DelegateFuncptrExp *e)
+    {
+    #if LOG
+        printf("%s DelegateFuncptrExp::interpret() %s\n", e->loc.toChars(), e->toChars());
+    #endif
+        Expression *e1 = e->e1->interpret(istate);
+        assert(e1);
+        if (exceptionOrCantInterpret(e1))
+        {
+            result = e1;
+            return;
+        }
+        e->error("%s cannot be evaluated at compile time", e->toChars());
+        result = EXP_CANT_INTERPRET;
     }
 
     void visit(IndexExp *e)
@@ -6847,7 +6887,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                 }
                 else
                     buflen = (indx + 4 > len) ? len - indx : 4;
-                for (int i = 0; i < buflen; ++i)
+                for (size_t i = 0; i < buflen; ++i)
                 {
                     Expression * r = (*ale->elements)[indx + i];
                     assert(r->op == TOKint64);
@@ -6872,7 +6912,7 @@ Expression *foreachApplyUtf(InterState *istate, Expression *str, Expression *del
                 }
                 else
                     buflen = (indx + 2 > len) ? len - indx : 2;
-                for (int i=0; i < buflen; ++i)
+                for (size_t i=0; i < buflen; ++i)
                 {
                     Expression * r = (*ale->elements)[indx + i];
                     assert(r->op == TOKint64);
@@ -7063,7 +7103,7 @@ Expression *evaluateIfBuiltin(InterState *istate, Loc loc,
             // But we might need some magic if stack tracing gets added to druntime.
             StructLiteralExp *se = ((ClassReferenceExp *)pthis)->value;
             assert(arguments->dim <= se->elements->dim);
-            for (int i = 0; i < arguments->dim; ++i)
+            for (size_t i = 0; i < arguments->dim; ++i)
             {
                 e = (*arguments)[i]->interpret(istate);
                 if (exceptionOrCantInterpret(e))

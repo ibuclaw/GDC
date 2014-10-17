@@ -469,6 +469,8 @@ Expression *Expression_optimize(Expression *e, int result, bool keepLvalue)
                 for (size_t i = 0; i < e->arguments->dim; i++)
                 {
                     Expression *arg = (*e->arguments)[i];
+                    if (!arg)
+                        continue;
                     arg = arg->optimize(WANTvalue);
                     (*e->arguments)[i] = arg;
                 }
@@ -1210,6 +1212,21 @@ Expression *Expression_optimize(Expression *e, int result, bool keepLvalue)
             //printf("CatExp::optimize(%d) %s\n", result, e->toChars());
             e->e1 = e->e1->optimize(result);
             e->e2 = e->e2->optimize(result);
+
+            if (e->e1->op == TOKcat)
+            {
+                // Bugzilla 12798: optimize ((expr ~ str1) ~ str2)
+                CatExp *ce1 = (CatExp *)e->e1;
+                CatExp cex(e->loc, ce1->e2, e->e2);
+                cex.type = e->type;
+                Expression *ex = cex.optimize(result);
+                if (ex != &cex)
+                {
+                    e->e1 = ce1->e1;
+                    e->e2 = ex;
+                }
+            }
+
             ret = Cat(e->type, e->e1, e->e2);
             if (ret == EXP_CANT_INTERPRET)
                 ret = e;

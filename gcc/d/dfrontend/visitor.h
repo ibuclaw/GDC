@@ -229,6 +229,8 @@ class VectorExp;
 class SliceExp;
 class ArrayLengthExp;
 class IntervalExp;
+class DelegatePtrExp;
+class DelegateFuncptrExp;
 class ArrayExp;
 class DotExp;
 class CommaExp;
@@ -506,6 +508,8 @@ public:
     virtual void visit(SliceExp *e) { visit((UnaExp *)e); }
     virtual void visit(ArrayLengthExp *e) { visit((UnaExp *)e); }
     virtual void visit(IntervalExp *e) { visit((Expression *)e); }
+    virtual void visit(DelegatePtrExp *e) { visit((UnaExp *)e); }
+    virtual void visit(DelegateFuncptrExp *e) { visit((UnaExp *)e); }
     virtual void visit(ArrayExp *e) { visit((UnaExp *)e); }
     virtual void visit(DotExp *e) { visit((BinExp *)e); }
     virtual void visit(CommaExp *e) { visit((BinExp *)e); }

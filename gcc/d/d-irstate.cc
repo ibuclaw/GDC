@@ -90,14 +90,7 @@ IRState::addExp (tree e)
      could be an integer constant (statement with no effect.)
      Maybe should filter those out anyway... */
   if (TREE_TYPE (e) && !VOID_TYPE_P (TREE_TYPE (e)))
-    {
-      if (warn_unused_value
-	  && !TREE_NO_WARNING (e)
-	  && !TREE_SIDE_EFFECTS (e))
-	warning (OPT_Wunused_value, "statement has no effect");
-
-      e = build1 (CONVERT_EXPR, void_type_node, e);
-    }
+    e = build1 (CONVERT_EXPR, void_type_node, e);
 
   if (EXPR_P (e) && !EXPR_HAS_LOCATION (e))
     SET_EXPR_LOCATION (e, input_location);

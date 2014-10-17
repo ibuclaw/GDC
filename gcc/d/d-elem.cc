@@ -1165,6 +1165,20 @@ ArrayLengthExp::toElem (IRState *irs)
 }
 
 elem *
+DelegatePtrExp::toElem(IRState *irs)
+{
+  tree t1 = e1->toElem(irs);
+  return delegate_object(t1);
+}
+
+elem *
+DelegateFuncptrExp::toElem(IRState *irs)
+{
+  tree t1 = e1->toElem(irs);
+  return delegate_method(t1);
+}
+
+elem *
 SliceExp::toElem (IRState *irs)
 {
   Type *tb = type->toBasetype();
@@ -1539,7 +1553,7 @@ CallExp::toElem (IRState *irs)
   else if (e1b->op == TOKvar)
     {
       FuncDeclaration *fd = ((VarExp *) e1b)->var->isFuncDeclaration();
-      gcc_assert (fd);
+      gcc_assert(fd != NULL);
       tf = get_function_type (fd->type);
 
       if (fd->isNested())

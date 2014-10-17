@@ -115,6 +115,8 @@ Expression *inferType(Expression *e, Type *t, int flag = 0);
 Expression *semanticTraits(TraitsExp *e, Scope *sc);
 Type *getIndirection(Type *t);
 
+Expression *checkGC(Scope *sc, Expression *e);
+
 /* Run CTFE on the expression, but allow the expression to be a TypeExp
  * or a tuple containing a TypeExp. (This is required by pragma(msg)).
  */
@@ -1152,7 +1154,26 @@ public:
     IntervalExp(Loc loc, Expression *lwr, Expression *upr);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
+    int isLvalue();
+    Expression *toLvalue(Scope *sc, Expression *e);
+    void accept(Visitor *v) { v->visit(this); }
+};
 
+class DelegatePtrExp : public UnaExp
+{
+public:
+    DelegatePtrExp(Loc loc, Expression *e1);
+    Expression *semantic(Scope *sc);
+    elem *toElem(IRState *irs);
+    void accept(Visitor *v) { v->visit(this); }
+};
+
+class DelegateFuncptrExp : public UnaExp
+{
+public:
+    DelegateFuncptrExp(Loc loc, Expression *e1);
+    Expression *semantic(Scope *sc);
+    elem *toElem(IRState *irs);
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -1181,6 +1202,8 @@ class DotExp : public BinExp
 public:
     DotExp(Loc loc, Expression *e1, Expression *e2);
     Expression *semantic(Scope *sc);
+    int isLvalue();
+    Expression *toLvalue(Scope *sc, Expression *e);
     void accept(Visitor *v) { v->visit(this); }
 };
 

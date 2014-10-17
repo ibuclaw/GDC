@@ -2874,7 +2874,7 @@ void realToMangleBuffer(OutBuffer *buf, real_t value)
         char buffer[BUFFER_LEN];
         size_t n = ld_sprint(buffer, 'A', value);
         assert(n < BUFFER_LEN);
-        for (int i = 0; i < n; i++)
+        for (size_t i = 0; i < n; i++)
         {   char c = buffer[i];
 
             switch (c)
@@ -3242,6 +3242,14 @@ Lagain:
             }
             e = e->copy();
             e->loc = loc;   // for better error message
+
+            // Detect recursive initializers.
+            // BUG: The check for speculative gagging is not correct
+            if (v->inuse && !global.isSpeculativeGagging())
+            {
+                e->error("circular initialization of %s", v->toChars());
+                return new ErrorExp();
+            }
             e = e->semantic(sc);
             return e;
         }
@@ -4055,24 +4063,6 @@ Expression *ArrayLiteralExp::semantic(Scope *sc)
 
     semanticTypeInfo(sc, t0);
 
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) &&
-        elements && type->toBasetype()->ty == Tarray)
-    {
-        for (size_t i = 0; i < elements->dim; i++)
-        {
-            if (!((*elements)[i])->isConst())
-            {
-                if (sc->func->setGC())
-                {
-                    error("array literals in @nogc function %s may cause GC allocation",
-                        sc->func->toChars());
-                    return new ErrorExp();
-                }
-                break;
-            }
-        }
-    }
-
     return this;
 }
 
@@ -4096,7 +4086,7 @@ StringExp *ArrayLiteralExp::toStringExp()
         OutBuffer buf;
         if (elements)
         {
-            for (int i = 0; i < elements->dim; ++i)
+            for (size_t i = 0; i < elements->dim; ++i)
             {
                 Expression *ch = (*elements)[i];
                 if (ch->op != TOKint64)
@@ -4208,12 +4198,6 @@ Expression *AssocArrayLiteralExp::semantic(Scope *sc)
 
     if (tkey == Type::terror || tvalue == Type::terror)
         return new ErrorExp;
-
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && keys->dim && sc->func->setGC())
-    {
-        error("associative array literal in @nogc function %s may cause GC allocation", sc->func->toChars());
-        return new ErrorExp;
-    }
 
     type = new TypeAArray(tvalue, tkey);
     type = type->semantic(loc, sc);
@@ -5084,35 +5068,6 @@ Lagain:
     //printf("NewExp: '%s'\n", toChars());
     //printf("NewExp:type '%s'\n", type->toChars());
     semanticTypeInfo(sc, type);
-
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe))
-    {
-        if (member && !member->isNogc() && sc->func->setGC())
-        {
-            error("constructor for %s may allocate in 'new' in @nogc function %s",
-                type->toChars(), sc->func->toChars());
-            goto Lerr;
-        }
-        if (!onstack)
-        {
-            if (allocator)
-            {
-                if (!allocator->isNogc() && sc->func->setGC())
-                {
-                    error("operator new in @nogc function %s may allocate", sc->func->toChars());
-                    goto Lerr;
-                }
-            }
-            else
-            {
-                if (sc->func->setGC())
-                {
-                    error("cannot use 'new' in @nogc function %s", sc->func->toChars());
-                    goto Lerr;
-                }
-            }
-        }
-    }
 
     return this;
 
@@ -8086,6 +8041,7 @@ CallExp::CallExp(Loc loc, Expression *e)
         : UnaExp(loc, TOKcall, sizeof(CallExp), e)
 {
     this->arguments = NULL;
+    this->f = NULL;
 }
 
 CallExp::CallExp(Loc loc, Expression *e, Expression *earg1)
@@ -8093,10 +8049,12 @@ CallExp::CallExp(Loc loc, Expression *e, Expression *earg1)
 {
     Expressions *arguments = new Expressions();
     if (earg1)
-    {   arguments->setDim(1);
+    {
+        arguments->setDim(1);
         (*arguments)[0] = earg1;
     }
     this->arguments = arguments;
+    this->f = NULL;
 }
 
 CallExp::CallExp(Loc loc, Expression *e, Expression *earg1, Expression *earg2)
@@ -8108,6 +8066,7 @@ CallExp::CallExp(Loc loc, Expression *e, Expression *earg1, Expression *earg2)
     (*arguments)[1] = earg2;
 
     this->arguments = arguments;
+    this->f = NULL;
 }
 
 CallExp *CallExp::create(Loc loc, Expression *e, Expressions *exps)
@@ -8985,7 +8944,7 @@ Lagain:
 
     if (!arguments)
         arguments = new Expressions();
-    int olderrors = global.errors;
+    unsigned int olderrors = global.errors;
     type = functionParameters(loc, sc, (TypeFunction *)(t1), tthis, arguments, f);
     if (olderrors != global.errors)
         return new ErrorExp();
@@ -9622,12 +9581,6 @@ Expression *DeleteExp::semantic(Scope *sc)
             error("use 'aa.remove(key)' instead of 'delete aa[key]'");
             goto Lerr;
         }
-    }
-
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
-    {
-        error("cannot use 'delete' in @nogc function %s", sc->func->toChars());
-        goto Lerr;
     }
 
     return this;
@@ -10338,6 +10291,76 @@ Expression *IntervalExp::semantic(Scope *sc)
     return this;
 }
 
+/********************** DelegatePtrExp **************************************/
+
+DelegatePtrExp::DelegatePtrExp(Loc loc, Expression *e1)
+        : UnaExp(loc, TOKdelegateptr, sizeof(DelegatePtrExp), e1)
+{
+}
+
+Expression *DelegatePtrExp::semantic(Scope *sc)
+{
+#if LOGSEMANTIC
+    printf("DelegatePtrExp::semantic('%s')\n", toChars());
+#endif
+    if (!type)
+    {
+        unaSemantic(sc);
+        e1 = resolveProperties(sc, e1);
+
+        if (e1->op == TOKerror)
+            return e1;
+        type = Type::tvoidptr;
+    }
+    return this;
+}
+
+int DelegatePtrExp::isLvalue()
+{
+    return e1->isLvalue();
+}
+
+Expression *DelegatePtrExp::toLvalue(Scope *sc, Expression *e)
+{
+    e1 = e1->toLvalue(sc, e);
+    return this;
+}
+
+/********************** DelegateFuncptrExp **************************************/
+
+DelegateFuncptrExp::DelegateFuncptrExp(Loc loc, Expression *e1)
+        : UnaExp(loc, TOKdelegatefuncptr, sizeof(DelegateFuncptrExp), e1)
+{
+}
+
+Expression *DelegateFuncptrExp::semantic(Scope *sc)
+{
+#if LOGSEMANTIC
+    printf("DelegateFuncptrExp::semantic('%s')\n", toChars());
+#endif
+    if (!type)
+    {
+        unaSemantic(sc);
+        e1 = resolveProperties(sc, e1);
+
+        if (e1->op == TOKerror)
+            return e1;
+        type = e1->type->nextOf()->pointerTo();
+    }
+    return this;
+}
+
+int DelegateFuncptrExp::isLvalue()
+{
+    return e1->isLvalue();
+}
+
+Expression *DelegateFuncptrExp::toLvalue(Scope *sc, Expression *e)
+{
+    e1 = e1->toLvalue(sc, e);
+    return this;
+}
+
 /*********************** ArrayExp *************************************/
 
 // e1 [ i1, i2, i3, ... ]
@@ -10633,12 +10656,6 @@ Expression *IndexExp::semantic(Scope *sc)
                 e2 = e2->implicitCastTo(sc, taa->index);        // type checking
             }
             type = taa->next;
-            if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
-            {
-                error("indexing an associative array in @nogc function %s may cause gc allocation",
-                    sc->func->toChars());
-                goto Lerror;
-            }
             break;
         }
 
@@ -11553,13 +11570,6 @@ Expression *AssignExp::semantic(Scope *sc)
         Type *tn = ale->e1->type->toBasetype()->nextOf();
         checkDefCtor(ale->loc, tn);
         semanticTypeInfo(sc, tn);
-
-        if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
-        {
-            error("Setting 'length' in @nogc function %s may cause GC allocation",
-                sc->func->toChars());
-            return new ErrorExp();
-        }
     }
     else if (e1->op == TOKslice)
     {
@@ -11831,12 +11841,6 @@ Expression *CatAssignExp::semantic(Scope *sc)
     Expression *e = op_overload(sc);
     if (e)
         return e;
-
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
-    {
-        error("cannot use operator ~= in @nogc function %s", sc->func->toChars());
-        return new ErrorExp();
-    }
 
     if (e1->op == TOKslice)
     {
@@ -12285,12 +12289,6 @@ Expression *CatExp::semantic(Scope *sc)
     Expression *e = op_overload(sc);
     if (e)
         return e;
-
-    if (sc->func && sc->intypeof != 1 && !(sc->flags & SCOPEctfe) && sc->func->setGC())
-    {
-        error("cannot use operator ~ in @nogc function %s", sc->func->toChars());
-        return new ErrorExp();
-    }
 
     Type *tb1 = e1->type->toBasetype();
     Type *tb2 = e2->type->toBasetype();
