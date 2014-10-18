@@ -1138,6 +1138,18 @@ bool arrayExpressionToCommonType(Scope *sc, Expressions *exps, Type **pt)
             t0 = Type::terror;
             continue;
         }
+        if (e->op == TOKtype)
+        {
+            e->rvalue();
+            t0 = Type::terror;
+            continue;
+        }
+        if (isNonAssignmentArrayOp(e))
+        {
+            e->error("array operation %s without assignment not implemented", e->toChars());
+            t0 = Type::terror;
+            continue;
+        }
 
         e = e->isLvalue() ? callCpCtor(sc, e) : valueNoDtor(e);
 
@@ -1232,6 +1244,12 @@ bool preFunctionParameters(Loc loc, Scope *sc, Expressions *exps)
             if (arg->op == TOKtype)
             {
                 arg->error("cannot pass type %s as a function argument", arg->toChars());
+                arg = new ErrorExp();
+                err = true;
+            }
+            if (isNonAssignmentArrayOp(arg))
+            {
+                arg->error("array operation %s without assignment not implemented", arg->toChars());
                 arg = new ErrorExp();
                 err = true;
             }
@@ -1388,7 +1406,8 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
     size_t nparams = Parameter::dim(tf->parameters);
 
     if (nargs > nparams && tf->varargs == 0)
-    {   error(loc, "expected %llu arguments, not %llu for non-variadic function type %s", (ulonglong)nparams, (ulonglong)nargs, tf->toChars());
+    {
+        error(loc, "expected %llu arguments, not %llu for non-variadic function type %s", (ulonglong)nparams, (ulonglong)nargs, tf->toChars());
         return Type::terror;
     }
 
@@ -1611,20 +1630,6 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
     {
         Expression *arg = (*arguments)[i];
         assert(arg);
-
-        if (arg->op == TOKtype)
-        {
-            arg->error("cannot pass type %s as function argument", arg->toChars());
-            arg = new ErrorExp();
-            goto L3;
-        }
-        if (isNonAssignmentArrayOp(arg))
-        {
-            arg->error("array operation %s without assignment not implemented", arg->toChars());
-            arg = new ErrorExp();
-            goto L3;
-        }
-
         if (i < nparams)
         {
             Parameter *p = Parameter::getNth(tf->parameters, i);
@@ -4883,12 +4888,10 @@ Lagain:
             goto Lerr;
         }
 
-        FuncDeclaration *f = NULL;
         if (cd->ctor)
-            f = resolveFuncCall(loc, sc, cd->ctor, NULL, tb, arguments, 0);
-        if (f)
         {
-            if (f->errors)
+            FuncDeclaration *f = resolveFuncCall(loc, sc, cd->ctor, NULL, tb, arguments, 0);
+            if (!f || f->errors)
                 goto Lerr;
             checkDeprecated(sc, f);
             checkPurity(sc, f);
@@ -4925,7 +4928,7 @@ Lagain:
                 newargs = new Expressions();
             newargs->shift(e);
 
-            f = resolveFuncCall(loc, sc, cd->aggNew, NULL, tb, newargs);
+            FuncDeclaration *f = resolveFuncCall(loc, sc, cd->aggNew, NULL, tb, newargs);
             if (!f || f->errors)
                 goto Lerr;
             allocator = f->isNewDeclaration();
@@ -4988,12 +4991,10 @@ Lagain:
             }
         }
 
-        FuncDeclaration *f = NULL;
         if (sd->ctor && nargs)
-            f = resolveFuncCall(loc, sc, sd->ctor, NULL, tb, arguments, 0);
-        if (f)
         {
-            if (f->errors)
+            FuncDeclaration *f = resolveFuncCall(loc, sc, sd->ctor, NULL, tb, arguments, 0);
+            if (!f || f->errors)
                 goto Lerr;
             checkDeprecated(sc, f);
             checkPurity(sc, f);
@@ -5544,7 +5545,7 @@ void FuncExp::genIdent(Scope *sc)
             symtab = sds->symtab;
         }
         assert(symtab);
-        int num = (int)_aaLen(symtab->tab) + 1;
+        int num = (int)dmd_aaLen(symtab->tab) + 1;
         Identifier *id = Lexer::uniqueId(s, num);
         fd->ident = id;
         if (td) td->ident = id;
@@ -8184,8 +8185,11 @@ Expression *CallExp::semantic(Scope *sc)
 
     if (e1->op == TOKfunction)
     {
-        arrayExpressionSemantic(arguments, sc);
-        preFunctionParameters(loc, sc, arguments);
+        if (arrayExpressionSemantic(arguments, sc) ||
+            preFunctionParameters(loc, sc, arguments))
+        {
+            return new ErrorExp();
+        }
 
         // Run e1 semantic even if arguments have any errors
         FuncExp *fe = (FuncExp *)e1;
@@ -8504,9 +8508,6 @@ Lagain:
         }
         else if (e1->op == TOKtype && t1->isscalar())
         {
-            if (arrayExpressionSemantic(arguments, sc))
-                return new ErrorExp();
-            preFunctionParameters(loc, sc, arguments);
             Expression *e;
             if (!arguments || arguments->dim == 0)
             {

@@ -1935,6 +1935,7 @@ Statement *ForeachStatement::semantic(Scope *sc)
                     {
                         error("index type '%s' cannot cover index range 0..%llu", arg->type->toChars(), ta->dim->toInteger());
                     }
+                    key->range = new IntRange(SignExtendedNumber(0), dimrange.imax);
                 }
                 else
                 {

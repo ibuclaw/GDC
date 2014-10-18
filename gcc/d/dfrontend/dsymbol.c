@@ -420,6 +420,7 @@ void *symbol_search_fp(void *arg, const char *seed)
     assert(id);
 
     Dsymbol *s = (Dsymbol *)arg;
+    Module::clearCache();
     return (void *)s->search(Loc(), id, IgnoreErrors | IgnoreAmbiguous);
 }
 
@@ -1481,14 +1482,14 @@ DsymbolTable::DsymbolTable()
 Dsymbol *DsymbolTable::lookup(Identifier *ident)
 {
     //printf("DsymbolTable::lookup(%s)\n", (char*)ident->string);
-    return (Dsymbol *)_aaGetRvalue(tab, ident);
+    return (Dsymbol *)dmd_aaGetRvalue(tab, (void *)ident);
 }
 
 Dsymbol *DsymbolTable::insert(Dsymbol *s)
 {
     //printf("DsymbolTable::insert(this = %p, '%s')\n", this, s->ident->toChars());
     Identifier *ident = s->ident;
-    Dsymbol **ps = (Dsymbol **)_aaGet(&tab, ident);
+    Dsymbol **ps = (Dsymbol **)dmd_aaGet(&tab, (void *)ident);
     if (*ps)
         return NULL;            // already in table
     *ps = s;
@@ -1498,7 +1499,7 @@ Dsymbol *DsymbolTable::insert(Dsymbol *s)
 Dsymbol *DsymbolTable::insert(Identifier *ident, Dsymbol *s)
 {
     //printf("DsymbolTable::insert()\n");
-    Dsymbol **ps = (Dsymbol **)_aaGet(&tab, ident);
+    Dsymbol **ps = (Dsymbol **)dmd_aaGet(&tab, (void *)ident);
     if (*ps)
         return NULL;            // already in table
     *ps = s;
@@ -1508,7 +1509,7 @@ Dsymbol *DsymbolTable::insert(Identifier *ident, Dsymbol *s)
 Dsymbol *DsymbolTable::update(Dsymbol *s)
 {
     Identifier *ident = s->ident;
-    Dsymbol **ps = (Dsymbol **)_aaGet(&tab, ident);
+    Dsymbol **ps = (Dsymbol **)dmd_aaGet(&tab, (void *)ident);
     *ps = s;
     return s;
 }

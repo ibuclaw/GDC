@@ -132,6 +132,26 @@ Expression *implicitCastTo(Expression *e, Scope *sc, Type *t)
             }
             visit((Expression *)e);
         }
+
+        void visit(SliceExp *e)
+        {
+            visit((Expression *)e);
+            if (result->op != TOKslice)
+                return;
+
+            e = (SliceExp *)result;
+            if (e->e1->op == TOKarrayliteral)
+            {
+                ArrayLiteralExp *ale = (ArrayLiteralExp *)e->e1;
+                Type *tb = t->toBasetype();
+                Type *tx;
+                if (tb->ty == Tsarray)
+                    tx = tb->nextOf()->sarrayOf(ale->elements ? ale->elements->dim : 0);
+                else
+                    tx = tb->nextOf()->arrayOf();
+                e->e1 = ale->implicitCastTo(sc, tx);
+            }
+        }
     };
 
     ImplicitCastTo v(sc, t);
@@ -223,7 +243,7 @@ MATCH implicitConvTo(Expression *e, Type *t)
          * Returns:
          *      match level
          */
-        static MATCH implicitMod(Expression *e, Type *t, unsigned mod)
+        static MATCH implicitMod(Expression *e, Type *t, MOD mod)
         {
             Type *tprime;
             if (t->ty == Tpointer)
@@ -751,6 +771,8 @@ MATCH implicitConvTo(Expression *e, Type *t)
             if (e->f && e->f->isolateReturn())
             {
                 result = e->type->immutableOf()->implicitConvTo(t);
+                if (result > MATCHconst)    // Match level is MATCHconst at best.
+                    result = MATCHconst;
                 return;
             }
 
@@ -776,7 +798,7 @@ MATCH implicitConvTo(Expression *e, Type *t)
             /* Get mod bits of what we're converting to
              */
             Type *tb = t->toBasetype();
-            unsigned mod = tb->mod;
+            MOD mod = tb->mod;
             if (tf->isref)
                 ;
             else
@@ -1057,7 +1079,7 @@ MATCH implicitConvTo(Expression *e, Type *t)
             /* Get mod bits of what we're converting to
              */
             Type *tb = t->toBasetype();
-            unsigned mod = tb->mod;
+            MOD mod = tb->mod;
             if (Type *ti = getIndirection(t))
                 mod = ti->mod;
 #if LOG
@@ -1179,7 +1201,7 @@ MATCH implicitConvTo(Expression *e, Type *t)
 
                     struct ClassCheck
                     {
-                        static bool convertible(Loc loc, ClassDeclaration *cd, unsigned mod)
+                        static bool convertible(Loc loc, ClassDeclaration *cd, MOD mod)
                         {
                             for (size_t i = 0; i < cd->fields.dim; i++)
                             {

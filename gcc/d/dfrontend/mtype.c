@@ -1046,7 +1046,7 @@ Type *Type::addSTC(StorageClass stc)
 
 StorageClass ModToStc(unsigned mod)
 {
-    StorageClass stc;
+    StorageClass stc = 0;
     if (mod & MODimmutable) stc |= STCimmutable;
     if (mod & MODconst)     stc |= STCconst;
     if (mod & MODwild)      stc |= STCwild;
@@ -1058,7 +1058,7 @@ StorageClass ModToStc(unsigned mod)
  * Apply MODxxxx bits to existing type.
  */
 
-Type *Type::castMod(unsigned mod)
+Type *Type::castMod(MOD mod)
 {   Type *t;
 
     switch (mod)
@@ -1111,7 +1111,7 @@ Type *Type::castMod(unsigned mod)
  * a shared type => "shared const"
  */
 
-Type *Type::addMod(unsigned mod)
+Type *Type::addMod(MOD mod)
 {
     /* Add anything to immutable, and it remains immutable
      */
@@ -1219,7 +1219,7 @@ Type *Type::addStorageClass(StorageClass stc)
 {
     /* Just translate to MOD bits and let addMod() do the work
      */
-    unsigned mod = 0;
+    MOD mod = 0;
 
     if (stc & STCimmutable)
         mod = MODimmutable;
@@ -1390,10 +1390,10 @@ Type *Type::toBasetype()
 /***************************
  * Return !=0 if modfrom can be implicitly converted to modto
  */
-int MODimplicitConv(unsigned char modfrom, unsigned char modto)
+bool MODimplicitConv(MOD modfrom, MOD modto)
 {
     if (modfrom == modto)
-        return 1;
+        return true;
 
     //printf("MODimplicitConv(from = %x, to = %x)\n", modfrom, modto);
     #define X(m, n) (((m) << 4) | (n))
@@ -1407,10 +1407,10 @@ int MODimplicitConv(unsigned char modfrom, unsigned char modto)
 
         case X(MODimmutable, MODconst):
         case X(MODimmutable, MODwildconst):
-            return 1;
+            return true;
 
         default:
-            return 0;
+            return false;
     }
     #undef X
 }
@@ -1418,10 +1418,10 @@ int MODimplicitConv(unsigned char modfrom, unsigned char modto)
 /***************************
  * Return !=0 if a method of type '() modfrom' can call a method of type '() modto'.
  */
-int MODmethodConv(unsigned char modfrom, unsigned char modto)
+bool MODmethodConv(MOD modfrom, MOD modto)
 {
     if (MODimplicitConv(modfrom, modto))
-        return 1;
+        return true;
 
     #define X(m, n) (((m) << 4) | (n))
     switch (X(modfrom, modto))
@@ -1432,10 +1432,10 @@ int MODmethodConv(unsigned char modfrom, unsigned char modto)
         case X(MODshared, MODshared|MODwild):
         case X(MODshared|MODimmutable, MODshared|MODwild):
         case X(MODshared|MODconst, MODshared|MODwild):
-            return 1;
+            return true;
 
         default:
-            return 0;
+            return false;
     }
     #undef X
 }
@@ -1443,13 +1443,13 @@ int MODmethodConv(unsigned char modfrom, unsigned char modto)
 /***************************
  * Merge mod bits to form common mod.
  */
-unsigned char MODmerge(unsigned char mod1, unsigned char mod2)
+MOD MODmerge(MOD mod1, MOD mod2)
 {
     if (mod1 == mod2)
         return mod1;
 
     //printf("MODmerge(1 = %x, 2 = %x)\n", mod1, mod2);
-    unsigned char result = 0;
+    MOD result = 0;
     if ((mod1 | mod2) & MODshared)
     {
         // If either type is shared, the result will be shared
@@ -1477,7 +1477,7 @@ unsigned char MODmerge(unsigned char mod1, unsigned char mod2)
 /*********************************
  * Mangling for mod.
  */
-void MODtoDecoBuffer(OutBuffer *buf, unsigned char mod)
+void MODtoDecoBuffer(OutBuffer *buf, MOD mod)
 {
     switch (mod)
     {   case 0:
@@ -1514,7 +1514,7 @@ void MODtoDecoBuffer(OutBuffer *buf, unsigned char mod)
 /*********************************
  * Store modifier name into buf.
  */
-void MODtoBuffer(OutBuffer *buf, unsigned char mod)
+void MODtoBuffer(OutBuffer *buf, MOD mod)
 {
     switch (mod)
     {
@@ -1564,7 +1564,7 @@ void MODtoBuffer(OutBuffer *buf, unsigned char mod)
 /*********************************
  * Return modifier name.
  */
-char *MODtoChars(unsigned char mod)
+char *MODtoChars(MOD mod)
 {
     OutBuffer buf;
     buf.reserve(16);
@@ -1715,7 +1715,8 @@ Type *stripDefaultArgs(Type *t)
         Parameters *args = N::stripParams(tt->arguments);
         if (args == tt->arguments)
             goto Lnot;
-        t = new TypeTuple(args);
+        t = t->copy();
+        ((TypeTuple *)t)->arguments = args;
     }
     else if (t->ty == Tenum)
     {
@@ -4757,29 +4758,6 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
             //   AA assumes that its result is consistent with bitwise equality.
             // else:
             //   bitwise equality & hashing
-
-        #if 1
-            /* Note that this diagnostic error report should be removed in near future.
-             * See also bugzilla 13074.
-             */
-
-            // duplicate a part of StructDeclaration::semanticTypeInfoMembers
-            if (sd->xcmp &&
-                sd->xcmp->scope &&
-                sd->xcmp->semanticRun < PASSsemantic3done)
-            {
-                unsigned errors = global.startGagging();
-                sd->xcmp->semantic3(sd->xcmp->scope);
-                if (global.endGagging(errors))
-                    sd->xcmp = sd->xerrcmp;
-            }
-            if (sd->xcmp && sd->xcmp != sd->xerrcmp)
-            {
-                error(loc, "%sAA key type %s now requires equality rather than comparison",
-                    s, sd->toChars());
-                errorSupplemental(loc, "Please define opEquals, or remove opCmp to also rely on default memberwise comparison.");
-            }
-        #endif
         }
         else if (sd->xeq == sd->xerreq)
         {
@@ -7437,10 +7415,10 @@ Expression *TypeEnum::dotExp(Scope *sc, Expression *e, Identifier *ident, int fl
 }
 
 Expression *TypeEnum::getProperty(Loc loc, Identifier *ident, int flag)
-{   Expression *e;
-
+{
+    Expression *e;
     if (ident == Id::max || ident == Id::min)
-        {
+    {
         return sym->getMaxMinValue(loc, ident);
     }
     else if (ident == Id::init)
@@ -7448,7 +7426,8 @@ Expression *TypeEnum::getProperty(Loc loc, Identifier *ident, int flag)
         e = defaultInitLiteral(loc);
     }
     else if (ident == Id::stringof)
-    {   char *s = toChars();
+    {
+        char *s = toChars();
         e = new StringExp(loc, s, strlen(s), 'c');
         Scope sc;
         e = e->semantic(&sc);

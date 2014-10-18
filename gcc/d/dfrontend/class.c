@@ -349,9 +349,7 @@ void ClassDeclaration::semantic(Scope *sc)
         // Expand any tuples in baseclasses[]
         for (size_t i = 0; i < baseclasses->dim; )
         {
-            if (!scx)
-                scx = new Scope(*sc);
-            scope = scx;
+            scope = scx ? scx : sc->copy();
             scope->setNoFree();
 
             BaseClass *b = (*baseclasses)[i];
@@ -671,7 +669,9 @@ Lancestorsdone:
     if (baseClass)
     {
         alignsize = baseClass->alignsize;
-        structsize = (baseClass->structsize + alignsize - 1) & ~(alignsize - 1);
+        structsize = baseClass->structsize;
+        if (cpp && global.params.isWindows)
+            structsize = (structsize + alignsize - 1) & ~(alignsize - 1);
     }
     else
     {
@@ -1333,9 +1333,7 @@ void InterfaceDeclaration::semantic(Scope *sc)
         // Expand any tuples in baseclasses[]
         for (size_t i = 0; i < baseclasses->dim; )
         {
-            if (!scx)
-                scx = new Scope(*sc);
-            scope = scx;
+            scope = scx ? scx : sc->copy();
             scope->setNoFree();
 
             BaseClass *b = (*baseclasses)[i];
