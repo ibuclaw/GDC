@@ -1813,7 +1813,7 @@ d_bounds_condition (tree index, tree upr, bool inclusive)
 // Returns TRUE if array bounds checking code generation is turned on.
 
 bool
-array_bounds_check (void)
+array_bounds_check()
 {
   int result = global.params.useArrayBounds;
 
@@ -2617,7 +2617,7 @@ build_typeinfo (Type *t)
 // Different from the generic exception pointer.
 
 tree
-build_exception_object (void)
+build_exception_object()
 {
   tree obj_type = build_object_type()->toCtype();
 

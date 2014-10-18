@@ -16,6 +16,9 @@
 // <http://www.gnu.org/licenses/>.
 
 #include "d-system.h"
+#include "d-lang.h"
+#include "d-codegen.h"
+
 #include "aggregate.h"
 #include "mtype.h"
 #include "dfrontend/target.h"
@@ -28,16 +31,16 @@ bool Target::reverseCppOverloads;
 
 
 void
-Target::init (void)
+Target::init()
 {
   // Map D frontend type and sizes to GCC backend types.
-  realsize = int_size_in_bytes (long_double_type_node);
-  realpad = TYPE_PRECISION (long_double_type_node) / BITS_PER_UNIT;
-  realalignsize = TYPE_ALIGN_UNIT (long_double_type_node);
+  realsize = int_size_in_bytes(long_double_type_node);
+  realpad = TYPE_PRECISION(long_double_type_node) / BITS_PER_UNIT;
+  realalignsize = TYPE_ALIGN_UNIT(long_double_type_node);
   reverseCppOverloads = false;
 
   // Define what type to use for size_t, ptrdiff_t.
-  size_t wordsize = int_size_in_bytes (size_type_node);
+  size_t wordsize = int_size_in_bytes(size_type_node);
   if (wordsize == 2)
     Tsize_t = Tuns16;
   else if (wordsize == 4)
@@ -62,39 +65,39 @@ Target::init (void)
 // Return GCC memory alignment size for type TYPE.
 
 unsigned
-Target::alignsize (Type *type)
+Target::alignsize(Type *type)
 {
-  gcc_assert (type->isTypeBasic());
-  return TYPE_ALIGN_UNIT (type->toCtype());
+  gcc_assert(type->isTypeBasic());
+  return TYPE_ALIGN_UNIT(type->toCtype());
 }
 
 
 // Return GCC field alignment size for type TYPE.
 
 unsigned
-Target::fieldalign (Type *type)
+Target::fieldalign(Type *type)
 {
   // Work out the correct alignment for the field decl.
-  tree field = make_node (FIELD_DECL);
-  DECL_ALIGN (field) = type->alignsize() * BITS_PER_UNIT;
+  tree field = make_node(FIELD_DECL);
+  DECL_ALIGN(field) = type->alignsize() * BITS_PER_UNIT;
 
 #ifdef BIGGEST_FIELD_ALIGNMENT
-  DECL_ALIGN (field)
-    = MIN (DECL_ALIGN (field), (unsigned) BIGGEST_FIELD_ALIGNMENT);
+  DECL_ALIGN(field)
+    = MIN(DECL_ALIGN(field), (unsigned) BIGGEST_FIELD_ALIGNMENT);
 #endif
 #ifdef ADJUST_FIELD_ALIGN
   if (type->isTypeBasic())
     {
-      TREE_TYPE (field) = type->toCtype();
-      DECL_ALIGN (field) = ADJUST_FIELD_ALIGN (field, DECL_ALIGN (field));
+      TREE_TYPE(field) = type->toCtype();
+      DECL_ALIGN(field) = ADJUST_FIELD_ALIGN(field, DECL_ALIGN(field));
     }
 #endif
 
   // Also controlled by -fpack-struct=
   if (maximum_field_alignment)
-    DECL_ALIGN (field) = MIN (DECL_ALIGN (field), maximum_field_alignment);
+    DECL_ALIGN(field) = MIN(DECL_ALIGN(field), maximum_field_alignment);
 
-  return DECL_ALIGN_UNIT (field);
+  return DECL_ALIGN_UNIT(field);
 }
 
 // Return size of OS critical section.
@@ -102,7 +105,7 @@ Target::fieldalign (Type *type)
 // and would end up using the host sizes rather than the target sizes.
 
 unsigned
-Target::critsecsize (void)
+Target::critsecsize()
 {
   if (global.params.isWindows)
     {
@@ -201,7 +204,7 @@ Target::paintAsType(Expression *expr, Type *type)
     gcc_unreachable();
 
   // Encode CST to buffer.
-  int len = native_encode_expr (cst, buffer, sizeof (buffer));
+  int len = native_encode_expr(cst, buffer, sizeof(buffer));
 
   if (tb->ty == Tsarray)
     {
@@ -209,22 +212,22 @@ Target::paintAsType(Expression *expr, Type *type)
       // then return the array literal.
       int nunits = ((TypeSArray *) type)->dim->toUInteger();
       Type *elem = type->nextOf();
-      tree vectype = build_vector_type (elem->toCtype(), nunits);
+      tree vectype = build_vector_type(elem->toCtype(), nunits);
 
-      cst = native_interpret_expr (vectype, buffer, len);
+      cst = native_interpret_expr(vectype, buffer, len);
 
-      Expression *e = build_expression (cst);
-      gcc_assert (e != NULL && e->op == TOKvector);
+      Expression *e = build_expression(cst);
+      gcc_assert(e != NULL && e->op == TOKvector);
 
       return ((VectorExp *) e)->e1;
     }
   else
     {
       // Normal interpret cast.
-      cst = native_interpret_expr (type->toCtype(), buffer, len);
+      cst = native_interpret_expr(type->toCtype(), buffer, len);
 
-      Expression *e = build_expression (cst);
-      gcc_assert (e != NULL);
+      Expression *e = build_expression(cst);
+      gcc_assert(e != NULL);
 
       return e;
     }

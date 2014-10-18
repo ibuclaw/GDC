@@ -133,6 +133,15 @@ Expression *implicitCastTo(Expression *e, Scope *sc, Type *t)
             visit((Expression *)e);
         }
 
+        void visit(ArrayLiteralExp *e)
+        {
+            visit((Expression *)e);
+
+            Type *tb = result->type->toBasetype();
+            if (tb->ty == Tarray)
+                semanticTypeInfo(sc, ((TypeDArray *)tb)->next);
+        }
+
         void visit(SliceExp *e)
         {
             visit((Expression *)e);
@@ -157,17 +166,6 @@ Expression *implicitCastTo(Expression *e, Scope *sc, Type *t)
     ImplicitCastTo v(sc, t);
     e->accept(&v);
     return v.result;
-}
-
-Expression *ArrayLiteralExp::implicitCastTo(Scope *sc, Type *t)
-{
-    Expression *result = Expression::implicitCastTo(sc, t);
-
-    Type *tb = result->type->toBasetype();
-    if (tb->ty == Tarray)
-        semanticTypeInfo(sc, ((TypeDArray *)tb)->next);
-
-    return result;
 }
 
 /*******************************************

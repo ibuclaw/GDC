@@ -27,7 +27,6 @@ private
     import core.memory;
     import rt.util.hash;
     import rt.util.string;
-    import rt.minfo;
     debug(PRINTF) import core.stdc.stdio;
 
     extern (C) void onOutOfMemoryError(void* pretend_sideffect = null) @trusted pure nothrow; /* dmd @@@BUG11461@@@ */
@@ -35,11 +34,6 @@ private
     extern (C) void _d_arrayshrinkfit(const TypeInfo ti, void[] arr) nothrow;
     extern (C) size_t _d_arraysetcapacity(const TypeInfo ti, size_t newcapacity, void *arrptr) pure nothrow;
     extern (C) void rt_finalize(void *data, bool det=true);
-}
-
-version (druntime_unittest)
-{
-    string __unittest_toString(T)(T) { return T.stringof; }
 }
 
 // NOTE: For some reason, this declaration method doesn't work
@@ -123,11 +117,28 @@ class Object
     }
 
     /**
-     * Create instance of class specified by classname.
+     * Create instance of class specified by the fully qualified name
+     * classname.
      * The class must either have no constructors or have
      * a default constructor.
      * Returns:
      *   null if failed
+     * Example:
+     * ---
+     * module foo.bar;
+     *
+     * class C
+     * {
+     *     this() { x = 10; }
+     *     int x;
+     * }
+     *
+     * void main()
+     * {
+     *     auto c = cast(C)Object.factory("foo.bar.C");
+     *     assert(c !is null && c.x == 10);
+     * }
+     * ---
      */
     static Object factory(string classname)
     {
@@ -201,10 +212,9 @@ struct OffsetTypeInfo
  */
 class TypeInfo
 {
-    override string toString() const
+    override string toString() const pure @safe nothrow
     {
-        // hack to keep const qualifiers for TypeInfo member functions
-        return (cast()super).toString();
+        return typeid(this).name;
     }
 
     override size_t toHash() @trusted const
@@ -252,10 +262,10 @@ class TypeInfo
     bool equals(in void* p1, in void* p2) const { return p1 == p2; }
 
     /// Compares two instances for &lt;, ==, or &gt;.
-    int compare(in void* p1, in void* p2) const { return 0; }
+    int compare(in void* p1, in void* p2) const { return _xopCmp(p1, p2); }
 
     /// Returns size of the type.
-    @property size_t tsize() nothrow pure const @safe { return 0; }
+    @property size_t tsize() nothrow pure const @safe @nogc { return 0; }
 
     /// Swaps two instances of the type.
     void swap(void* p1, void* p2) const
@@ -271,16 +281,16 @@ class TypeInfo
 
     /// Get TypeInfo for 'next' type, as defined by what kind of type this is,
     /// null if none.
-    @property inout(TypeInfo) next() nothrow pure inout { return null; }
+    @property inout(TypeInfo) next() nothrow pure inout @nogc { return null; }
 
     /// Return default initializer.  If the type should be initialized to all zeros,
     /// an array with a null ptr and a length equal to the type size will be returned.
     // TODO: make this a property, but may need to be renamed to diambiguate with T.init...
-    const(void)[] init() nothrow pure const @safe { return null; }
+    const(void)[] init() nothrow pure const @safe @nogc { return null; }
 
     /// Get flags for type: 1 means GC should scan for pointers,
     /// 2 means arg of this type is passed in XMM register
-    @property uint flags() nothrow pure const @safe { return 0; }
+    @property uint flags() nothrow pure const @safe @nogc { return 0; }
 
     /// Get type information on the contents of the type; null if not available
     const(OffsetTypeInfo)[] offTi() const { return null; }
@@ -291,7 +301,7 @@ class TypeInfo
 
 
     /// Return alignment of type
-    @property size_t talign() nothrow pure const @safe { return tsize; }
+    @property size_t talign() nothrow pure const @safe @nogc { return tsize; }
 
     /** Return internal info on arguments fitting into 8byte.
      * See X86-64 ABI 3.2.3
@@ -304,7 +314,7 @@ class TypeInfo
 
     /** Return info used by the garbage collector to do precise collection.
      */
-    @property immutable(void)* rtInfo() nothrow pure const @safe { return null; }
+    @property immutable(void)* rtInfo() nothrow pure const @safe @nogc { return null; }
 }
 
 class TypeInfo_Typedef : TypeInfo
@@ -489,7 +499,7 @@ class TypeInfo_StaticArray : TypeInfo
     override string toString() const
     {
         SizeStringBuff tmpBuff = void;
-        return cast(string)(value.toString() ~ "[" ~ len.sizeToTempString(tmpBuff) ~ "]");
+        return value.toString() ~ "[" ~ len.sizeToTempString(tmpBuff) ~ "]";
     }
 
     override bool opEquals(Object o)
@@ -603,7 +613,7 @@ class TypeInfo_AssociativeArray : TypeInfo
 {
     override string toString() const
     {
-        return cast(string)(next.toString() ~ "[" ~ key.toString() ~ "]");
+        return value.toString() ~ "[" ~ key.toString() ~ "]";
     }
 
     override bool opEquals(Object o)
@@ -618,13 +628,6 @@ class TypeInfo_AssociativeArray : TypeInfo
     override bool equals(in void* p1, in void* p2) @trusted const
     {
         return !!_aaEqual(this, *cast(const void**) p1, *cast(const void**) p2);
-    }
-
-    override int compare(in void* p1, in void* p2) const
-    {
-        // This is a hack to fix Issue 10380 because AA uses
-        // `compare` instead of `equals`.
-        return !equals(p1, p2);
     }
 
     override hash_t getHash(in void* p) nothrow @trusted const
@@ -1465,7 +1468,7 @@ class Exception : Throwable
 
     /**
      * Creates a new instance of Exception. The next parameter is used
-     * internally and should be always be $(D null) when passed by user code.
+     * internally and should always be $(D null) when passed by user code.
      * This constructor does not automatically throw the newly-created
      * Exception; the $(D throw) statement should be used for that purpose.
      */
@@ -1508,8 +1511,23 @@ unittest
 }
 
 
+/**
+ * The base class of all unrecoverable runtime errors.
+ *
+ * This represents the category of $(D Throwable) objects that are $(B not)
+ * safe to catch and handle. In principle, one should not catch Error
+ * objects, as they represent unrecoverable runtime errors.
+ * Certain runtime guarantees may fail to hold when these errors are
+ * thrown, making it unsafe to continue execution after catching them.
+ */
 class Error : Throwable
 {
+    /**
+     * Creates a new instance of Error. The next parameter is used
+     * internally and should always be $(D null) when passed by user code.
+     * This constructor does not automatically throw the newly-created
+     * Error; the $(D throw) statement should be used for that purpose.
+     */
     @safe pure nothrow this(string msg, Throwable next = null)
     {
         super(msg, next);
@@ -1522,8 +1540,8 @@ class Error : Throwable
         bypassedException = null;
     }
 
-    /// The first Exception which was bypassed when this Error was thrown,
-    /// or null if no Exceptions were pending.
+    /// The first $(D Exception) which was bypassed when this Error was thrown,
+    /// or $(D null) if no $(D Exception)s were pending.
     Throwable   bypassedException;
 }
 
@@ -1587,6 +1605,18 @@ struct ModuleInfo
     uint _flags;
     uint _index; // index into _moduleinfo_array[]
 
+    version (all)
+    {
+        deprecated("ModuleInfo cannot be copy-assigned because it is a variable-sized struct.")
+        void opAssign(in ModuleInfo m) { _flags = m._flags; _index = m._index; }
+    }
+    else
+    {
+        @disable this();
+        @disable this(this) const;
+    }
+
+const:
     private void* addrOf(int flag) nothrow pure
     in
     {
@@ -1651,10 +1681,8 @@ struct ModuleInfo
     }
 
     @property uint index() nothrow pure { return _index; }
-    @property void index(uint i) nothrow pure { _index = i; }
 
     @property uint flags() nothrow pure { return _flags; }
-    @property void flags(uint f) nothrow pure { _flags = f; }
 
     @property void function() tlsctor() nothrow pure
     {
@@ -1691,12 +1719,12 @@ struct ModuleInfo
         return flags & MIunitTest ? *cast(typeof(return)*)addrOf(MIunitTest) : null;
     }
 
-    @property ModuleInfo*[] importedModules() nothrow pure
+    @property immutable(ModuleInfo*)[] importedModules() nothrow pure
     {
         if (flags & MIimportedModules)
         {
             auto p = cast(size_t*)addrOf(MIimportedModules);
-            return (cast(ModuleInfo**)(p + 1))[0 .. *p];
+            return (cast(immutable(ModuleInfo*)*)(p + 1))[0 .. *p];
         }
         return null;
     }
@@ -1721,14 +1749,23 @@ struct ModuleInfo
         // return null;
     }
 
-    alias int delegate(ref ModuleInfo*) ApplyDg;
-
-    static int opApply(scope ApplyDg dg)
+    static int opApply(scope int delegate(ModuleInfo*) dg)
     {
-        return rt.minfo.moduleinfos_apply(dg);
+        import rt.minfo;
+        // Bugzilla 13084 - enforcing immutable ModuleInfo would break client code
+        return rt.minfo.moduleinfos_apply(
+            (immutable(ModuleInfo*)m) => dg(cast(ModuleInfo*)m));
     }
 }
 
+unittest
+{
+    ModuleInfo* m1;
+    foreach (m; ModuleInfo)
+    {
+        m1 = m;
+    }
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Monitor
@@ -1933,7 +1970,7 @@ extern (C)
 {
     // from druntime/src/rt/aaA.d
 
-    // size_t _aaLen(in void* p) pure nothrow;
+    // size_t _aaLen(in void* p) pure nothrow @nogc;
     // void* _aaGetX(void** pp, const TypeInfo keyti, in size_t valuesize, in void* pkey);
     // inout(void)* _aaGetRvalueX(inout void* p, in TypeInfo keyti, in size_t valuesize, in void* pkey);
     inout(void)[] _aaValues(inout void* p, in size_t keysize, in size_t valuesize) pure nothrow;
@@ -1947,11 +1984,11 @@ extern (C)
     // int _aaApply2(void* aa, size_t keysize, _dg2_t dg);
 
     private struct AARange { void* impl, current; }
-    AARange _aaRange(void* aa);
-    bool _aaRangeEmpty(AARange r);
-    void* _aaRangeFrontKey(AARange r);
-    void* _aaRangeFrontValue(AARange r);
-    void _aaRangePopFront(ref AARange r);
+    AARange _aaRange(void* aa) pure nothrow @nogc;
+    bool _aaRangeEmpty(AARange r) pure nothrow @nogc;
+    void* _aaRangeFrontKey(AARange r) pure nothrow @nogc;
+    void* _aaRangeFrontValue(AARange r) pure nothrow @nogc;
+    void _aaRangePopFront(ref AARange r) pure nothrow @nogc;
 
     int _aaEqual(in TypeInfo tiRaw, in void* e1, in void* e2);
     hash_t _aaGetHash(in void* aa, in TypeInfo tiRaw) nothrow;
@@ -1959,13 +1996,25 @@ extern (C)
 
 alias AssociativeArray(Key, Value) = Value[Key];
 
-Value[Key] rehash(T : Value[Key], Value, Key)(auto ref T aa)
+T rehash(T : Value[Key], Value, Key)(T aa)
 {
     _aaRehash(cast(void**)&aa, typeid(Value[Key]));
     return aa;
 }
 
-Value[Key] rehash(T : Value[Key], Value, Key)(T* aa)
+T rehash(T : Value[Key], Value, Key)(T* aa)
+{
+    _aaRehash(cast(void**)aa, typeid(Value[Key]));
+    return *aa;
+}
+
+T rehash(T : shared Value[Key], Value, Key)(T aa)
+{
+    _aaRehash(cast(void**)&aa, typeid(Value[Key]));
+    return aa;
+}
+
+T rehash(T : shared Value[Key], Value, Key)(T* aa)
 {
     _aaRehash(cast(void**)aa, typeid(Value[Key]));
     return *aa;
@@ -1998,12 +2047,13 @@ Value[Key] dup(T : Value[Key], Value, Key)(T* aa) if (is(typeof((*aa).dup)))
 
 Value[Key] dup(T : Value[Key], Value, Key)(T* aa) if (!is(typeof((*aa).dup)));
 
-auto byKey(T : Value[Key], Value, Key)(T aa)
+auto byKey(T : Value[Key], Value, Key)(T aa) pure nothrow @nogc
 {
     static struct Result
     {
         AARange r;
 
+    pure nothrow @nogc:
         @property bool empty() { return _aaRangeEmpty(r); }
         @property ref Key front() { return *cast(Key*)_aaRangeFrontKey(r); }
         void popFront() { _aaRangePopFront(r); }
@@ -2013,17 +2063,18 @@ auto byKey(T : Value[Key], Value, Key)(T aa)
     return Result(_aaRange(cast(void*)aa));
 }
 
-auto byKey(T : Value[Key], Value, Key)(T *aa)
+auto byKey(T : Value[Key], Value, Key)(T *aa) pure nothrow @nogc
 {
     return (*aa).byKey();
 }
 
-auto byValue(T : Value[Key], Value, Key)(T aa)
+auto byValue(T : Value[Key], Value, Key)(T aa) pure nothrow @nogc
 {
     static struct Result
     {
         AARange r;
 
+    pure nothrow @nogc:
         @property bool empty() { return _aaRangeEmpty(r); }
         @property ref Value front() { return *cast(Value*)_aaRangeFrontValue(r); }
         void popFront() { _aaRangePopFront(r); }
@@ -2033,7 +2084,7 @@ auto byValue(T : Value[Key], Value, Key)(T aa)
     return Result(_aaRange(cast(void*)aa));
 }
 
-auto byValue(T : Value[Key], Value, Key)(T *aa)
+auto byValue(T : Value[Key], Value, Key)(T *aa) pure nothrow @nogc
 {
     return (*aa).byValue();
 }
@@ -2071,7 +2122,7 @@ inout(V) get(K, V)(inout(V[K])* aa, K key, lazy inout(V) defaultValue)
     return (*aa).get(key, defaultValue);
 }
 
-unittest
+pure nothrow unittest
 {
     int[int] a;
     foreach (i; a.byKey)
@@ -2084,7 +2135,7 @@ unittest
     }
 }
 
-unittest
+pure /*nothrow @@@BUG5555@@@*/ unittest
 {
     auto a = [ 1:"one", 2:"two", 3:"three" ];
     auto b = a.dup;
@@ -2102,7 +2153,8 @@ unittest
     assert(c[1] == 2);
     assert(c[2] == 3);
 }
-unittest
+
+pure nothrow unittest
 {
     // test for bug 5925
     const a = [4:0];
@@ -2110,7 +2162,7 @@ unittest
     assert(a == b);
 }
 
-unittest
+pure nothrow unittest
 {
     // test for bug 9052
     static struct Json {
@@ -2124,7 +2176,7 @@ unittest
     }
 }
 
-unittest
+pure nothrow unittest
 {
     // test for bug 8583: ensure Slot and aaA are on the same page wrt value alignment
     string[byte]    aa0 = [0: "zero"];
@@ -2140,7 +2192,7 @@ unittest
     assert(aa4.byValue.front == "onetwothreefourfive");
 }
 
-unittest
+pure nothrow unittest
 {
     // test for bug 10720
     static struct NC
@@ -2152,7 +2204,7 @@ unittest
     static assert(!is(aa.nonExistingField));
 }
 
-unittest
+pure nothrow unittest
 {
     // bug 5842
     string[string] test = null;
@@ -2162,7 +2214,7 @@ unittest
     test["test3"] = "test3"; // causes divide by zero if rehash broke the AA
 }
 
-unittest
+pure nothrow unittest
 {
     string[] keys = ["a", "b", "c", "d", "e", "f"];
 
@@ -2243,7 +2295,7 @@ unittest
     }
 }
 
-unittest
+pure nothrow unittest
 {
     // expanded test for 5842: increase AA size past the point where the AA
     // stops using binit, in order to test another code path in rehash.
@@ -2254,6 +2306,13 @@ unittest
         aa.remove(i);
     aa.rehash;
     aa[1] = 1;
+}
+
+pure nothrow unittest
+{
+    // bug 13078
+    shared string[][string] map;
+    map.rehash;
 }
 
 deprecated("Please use destroy instead of clear.")
@@ -2766,12 +2825,10 @@ unittest
     assert(aa[[S(12)]] == 13); // fails
 }
 
-private extern (C) void[] _d_newarrayU(const TypeInfo ti, size_t length) pure nothrow;
-
 public:
 
 /// Provide the .dup array property.
-auto dup(T)(T[] a)
+@property auto dup(T)(T[] a)
     if (!is(const(T) : T))
 {
     import core.internal.traits : Unconst;
@@ -2787,7 +2844,7 @@ auto dup(T)(T[] a)
 
 /// ditto
 // const overload to support implicit conversion to immutable (unique result, see DIP29)
-T[] dup(T)(const(T)[] a)
+@property T[] dup(T)(const(T)[] a)
     if (is(const(T) : T))
 {
     // wrap unsafe _dup in @trusted to preserve @safe postblit
@@ -2797,8 +2854,15 @@ T[] dup(T)(const(T)[] a)
         return _dup!(const(T), T)(a);
 }
 
+/// ditto
+@property T[] dup(T:void)(const(T)[] a) @trusted
+{
+    if (__ctfe) assert(0, "Cannot dup a void[] array at compile time.");
+    return cast(T[])_rawDup(a);
+}
+
 /// Provide the .idup array property.
-immutable(T)[] idup(T)(T[] a)
+@property immutable(T)[] idup(T)(T[] a)
 {
     static assert(is(T : immutable(T)), "Cannot implicitly convert type "~T.stringof~
                   " to immutable in idup.");
@@ -2808,6 +2872,12 @@ immutable(T)[] idup(T)(T[] a)
         return _trustedDup!(T, immutable(T))(a);
     else
         return _dup!(T, immutable(T))(a);
+}
+
+/// ditto
+@property immutable(T)[] idup(T:void)(const(T)[] a)
+{
+    return a.dup;
 }
 
 private U[] _trustedDup(T, U)(T[] a) @trusted
@@ -2825,13 +2895,21 @@ private U[] _dup(T, U)(T[] a) // pure nothrow depends on postblit
         return res;
     }
 
-    import core.stdc.string : memcpy;
-
-    auto arr = _d_newarrayU(typeid(T[]), a.length);
-    memcpy(cast(void*)arr.ptr, cast(void*)a.ptr, T.sizeof * a.length);
-    auto res = *cast(typeof(return)*)&arr;
+    a = _rawDup(a);
+    auto res = *cast(typeof(return)*)&a;
     _doPostblit(res);
     return res;
+}
+
+private extern (C) void[] _d_newarrayU(const TypeInfo ti, size_t length) pure nothrow;
+
+private inout(T)[] _rawDup(T)(inout(T)[] a)
+{
+    import core.stdc.string : memcpy;
+
+    void[] arr = _d_newarrayU(typeid(T[]), a.length);
+    memcpy(arr.ptr, cast(void*)a.ptr, T.sizeof * a.length);
+    return *cast(inout(T)[]*)&arr;
 }
 
 private void _doPostblit(T)(T[] ary)
@@ -2871,32 +2949,32 @@ unittest
         {
            char[] m;
            string i;
-           m = dup(m);
-           i = idup(i);
-           m = dup(i);
-           i = idup(m);
+           m = m.dup;
+           i = i.idup;
+           m = i.dup;
+           i = m.idup;
         }
         {
            S1[] m;
            immutable(S1)[] i;
-           m = dup(m);
-           i = idup(i);
-           static assert(!is(typeof(idup(m))));
-           static assert(!is(typeof(dup(i))));
+           m = m.dup;
+           i = i.idup;
+           static assert(!is(typeof(m.idup)));
+           static assert(!is(typeof(i.dup)));
         }
         {
             S3[] m;
             immutable(S3)[] i;
-            static assert(!is(typeof(dup(m))));
-            static assert(!is(typeof(idup(i))));
+            static assert(!is(typeof(m.dup)));
+            static assert(!is(typeof(i.idup)));
         }
         {
             shared(S1)[] m;
-            m = dup(m);
-            static assert(!is(typeof(idup(m))));
+            m = m.dup;
+            static assert(!is(typeof(m.idup)));
         }
         {
-            int[] a = (inout(int)) { inout(const(int))[] a; return dup(a); }(0);
+            int[] a = (inout(int)) { inout(const(int))[] a; return a.dup; }(0);
         }
         return 1;
     }
@@ -2906,10 +2984,10 @@ unittest
         {
            S2[] m = [S2.init, S2.init];
            immutable(S2)[] i = [S2.init, S2.init];
-           m = dup(m);
-           m = dup(i);
-           i = idup(m);
-           i = idup(i);
+           m = m.dup;
+           m = i.dup;
+           i = m.idup;
+           i = i.idup;
         }
         return 2;
     }
@@ -2926,33 +3004,52 @@ unittest
     static struct Sthrow { this(this) @safe pure {} }
     static struct Sunsafe { this(this) @system pure nothrow {} }
 
-    static assert( __traits(compiles, ()         { dup!Sunpure([]); }));
-    static assert(!__traits(compiles, () pure    { dup!Sunpure([]); }));
-    static assert( __traits(compiles, ()         { dup!Sthrow([]); }));
-    static assert(!__traits(compiles, () nothrow { dup!Sthrow([]); }));
-    static assert( __traits(compiles, ()         { dup!Sunsafe([]); }));
-    static assert(!__traits(compiles, () @safe   { dup!Sunsafe([]); }));
+    static assert( __traits(compiles, ()         { [].dup!Sunpure; }));
+    static assert(!__traits(compiles, () pure    { [].dup!Sunpure; }));
+    static assert( __traits(compiles, ()         { [].dup!Sthrow; }));
+    static assert(!__traits(compiles, () nothrow { [].dup!Sthrow; }));
+    static assert( __traits(compiles, ()         { [].dup!Sunsafe; }));
+    static assert(!__traits(compiles, () @safe   { [].dup!Sunsafe; }));
 
-    static assert( __traits(compiles, ()         { idup!Sunpure([]); }));
-    static assert(!__traits(compiles, () pure    { idup!Sunpure([]); }));
-    static assert( __traits(compiles, ()         { idup!Sthrow([]); }));
-    static assert(!__traits(compiles, () nothrow { idup!Sthrow([]); }));
-    static assert( __traits(compiles, ()         { idup!Sunsafe([]); }));
-    static assert(!__traits(compiles, () @safe   { idup!Sunsafe([]); }));
+    static assert( __traits(compiles, ()         { [].idup!Sunpure; }));
+    static assert(!__traits(compiles, () pure    { [].idup!Sunpure; }));
+    static assert( __traits(compiles, ()         { [].idup!Sthrow; }));
+    static assert(!__traits(compiles, () nothrow { [].idup!Sthrow; }));
+    static assert( __traits(compiles, ()         { [].idup!Sunsafe; }));
+    static assert(!__traits(compiles, () @safe   { [].idup!Sunsafe; }));
 }
 
 unittest
 {
     static int*[] pureFoo() pure { return null; }
-    { char[] s; immutable x = s.dup(); }
-    { immutable x = (cast(int*[])null).dup(); }
+    { char[] s; immutable x = s.dup; }
+    { immutable x = (cast(int*[])null).dup; }
     { immutable x = pureFoo(); }
-    { immutable x = pureFoo().dup(); }
+    { immutable x = pureFoo().dup; }
 }
 
 unittest
 {
     auto a = [1, 2, 3];
-    auto b = a.dup();
+    auto b = a.dup;
     assert(b.capacity >= 3);
+}
+
+unittest
+{
+    // Bugzilla 12580
+    void[] m = [0];
+    shared(void)[] s = [cast(shared)1];
+    immutable(void)[] i = [cast(immutable)2];
+
+    s = s.dup;
+    static assert(is(typeof(s.dup) == shared(void)[]));
+
+    m = i.dup;
+    i = m.dup;
+    i = i.idup;
+    i = m.idup;
+    i = s.idup;
+    i = s.dup;
+    static assert(!__traits(compiles, m = s.dup));
 }

@@ -2,20 +2,19 @@
  * D header file for C99.
  *
  * Copyright: Copyright Sean Kelly 2005 - 2009.
- * License:   <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License 1.0</a>.
+ * License: Distributed under the
+ *      $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0).
+ *    (See accompanying file LICENSE)
  * Authors:   Sean Kelly, Alex Rønne Petersen
+ * Source:    $(DRUNTIMESRC core/stdc/_errno.d)
  * Standards: ISO/IEC 9899:1999 (E)
  */
 
-/*          Copyright Sean Kelly 2005 - 2009.
- * Distributed under the Boost Software License, Version 1.0.
- *    (See accompanying file LICENSE or copy at
- *          http://www.boost.org/LICENSE_1_0.txt)
- */
 module core.stdc.errno;
 
 @trusted: // Only manipulates errno.
 nothrow:
+@nogc:
 
 @property int errno() { return getErrno(); }
 @property int errno(int n) { return setErrno(n); }
@@ -164,6 +163,7 @@ else version( linux )
     enum EPROTONOSUPPORT    = 93;       // Protocol not supported
     enum ESOCKTNOSUPPORT    = 94;       // Socket type not supported
     enum EOPNOTSUPP         = 95;       // Operation not supported on transport endpoint
+    enum ENOTSUP            = EOPNOTSUPP;
     enum EPFNOSUPPORT       = 96;       // Protocol family not supported
     enum EAFNOSUPPORT       = 97;       // Address family not supported by protocol
     enum EADDRINUSE         = 98;       // Address already in use

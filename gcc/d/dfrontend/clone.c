@@ -92,8 +92,6 @@ FuncDeclaration *hasIdentityOpAssign(AggregateDeclaration *ad, Scope *sc)
         FuncDeclaration *f = NULL;
 
         unsigned errors = global.startGagging();    // Do not report errors, even if the
-        unsigned oldspec = global.speculativeGag;   // template opAssign fbody makes it.
-        global.speculativeGag = global.gag;
         sc = sc->push();
         sc->speculative = true;
 
@@ -106,7 +104,6 @@ FuncDeclaration *hasIdentityOpAssign(AggregateDeclaration *ad, Scope *sc)
         }
 
         sc = sc->pop();
-        global.speculativeGag = oldspec;
         global.endGagging(errors);
 
         if (f)
@@ -194,7 +191,7 @@ FuncDeclaration *buildOpAssign(StructDeclaration *sd, Scope *sc)
 {
     if (FuncDeclaration *f = hasIdentityOpAssign(sd, sc))
     {
-        sd->hasIdentityAssign = 1;
+        sd->hasIdentityAssign = true;
         return f;
     }
     // Even if non-identity opAssign is defined, built-in identity opAssign
@@ -304,25 +301,20 @@ FuncDeclaration *buildOpAssign(StructDeclaration *sd, Scope *sc)
         fop->fbody = new CompoundStatement(loc, s1, s2);
     }
 
-    Dsymbol *s = fop;
-    sd->members->push(s);
-    s->addMember(sc, sd, 1);
-    sd->hasIdentityAssign = 1;        // temporary mark identity assignable
+    sd->members->push(fop);
+    fop->addMember(sc, sd, 1);
+    sd->hasIdentityAssign = true;        // temporary mark identity assignable
 
     unsigned errors = global.startGagging();    // Do not report errors, even if the
-    unsigned oldspec = global.speculativeGag;   // template opAssign fbody makes it.
-    global.speculativeGag = global.gag;
     Scope *sc2 = sc->push();
     sc2->stc = 0;
     sc2->linkage = LINKd;
-    sc2->speculative = true;
 
     fop->semantic(sc2);
     fop->semantic2(sc2);
     fop->semantic3(sc2);
 
     sc2->pop();
-    global.speculativeGag = oldspec;
     if (global.endGagging(errors))    // if errors happened
     {
         // Disable generated opAssign, because some members forbid identity assignment.
@@ -413,8 +405,6 @@ FuncDeclaration *hasIdentityOpEquals(AggregateDeclaration *ad,  Scope *sc)
             FuncDeclaration *f = NULL;
 
             unsigned errors = global.startGagging();    // Do not report errors, even if the
-            unsigned oldspec = global.speculativeGag;   // template opAssign fbody makes it.
-            global.speculativeGag = global.gag;
             sc = sc->push();
             sc->speculative = true;
 
@@ -428,7 +418,6 @@ FuncDeclaration *hasIdentityOpEquals(AggregateDeclaration *ad,  Scope *sc)
             }
 
             sc = sc->pop();
-            global.speculativeGag = oldspec;
             global.endGagging(errors);
 
             if (f)
@@ -456,7 +445,7 @@ FuncDeclaration *buildOpEquals(StructDeclaration *sd, Scope *sc)
 {
     if (hasIdentityOpEquals(sd, sc))
     {
-        sd->hasIdentityEquals = 1;
+        sd->hasIdentityEquals = true;
     }
     return NULL;
 }
@@ -1127,7 +1116,7 @@ FuncDeclaration *buildInv(AggregateDeclaration *ad, Scope *sc)
                 else if (stcx ^ stcy)
                 {
             #if 1   // currently rejects
-                    error(ad->invs[i]->loc, "mixing invariants with shared/synchronized differene is not supported");
+                    ad->error(ad->invs[i]->loc, "mixing invariants with shared/synchronized differene is not supported");
                     e = NULL;
                     break;
             #endif

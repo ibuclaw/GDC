@@ -75,18 +75,6 @@ Global::endGagging(unsigned oldGagged)
   return anyErrs;
 }
 
-bool
-Global::isSpeculativeGagging()
-{
-  if (!this->gag)
-    return false;
-
-  if (this->gag != this->speculativeGag)
-    return false;
-
-  return true;
-}
-
 void
 Global::increaseErrorCount()
 {
@@ -95,24 +83,6 @@ Global::increaseErrorCount()
 
   this->errors++;
 }
-
-Ungag
-Dsymbol::ungagSpeculative()
-{
-  unsigned oldgag = global.gag;
-
-  if (global.isSpeculativeGagging() && !isSpeculative()
-      && !toParent2()->isFuncDeclaration())
-    global.gag = 0;
-
-  return Ungag(oldgag);
-}
-
-Ungag::~Ungag()
-{
-  global.gag = this->oldgag;
-}
-
 
 char *
 Loc::toChars()

@@ -599,7 +599,7 @@ enum built_in_attribute
 static GTY(()) tree built_in_attributes[(int) ATTR_LAST];
 
 static void
-d_init_attributes (void)
+d_init_attributes()
 {
   /* Fill in the built_in_attributes array.  */
 #define DEF_ATTR_NULL_TREE(ENUM)                \
@@ -746,7 +746,7 @@ def_fn_type (builtin_type def, builtin_type ret, bool var, int n, ...)
 // Build builtin functions and types for the D language frontend.
 
 void
-d_init_builtins (void)
+d_init_builtins()
 {
   tree va_list_ref_type_node;
   tree va_list_arg_type_node;
@@ -1378,7 +1378,7 @@ ignore_attribute (tree * ARG_UNUSED (node), tree ARG_UNUSED (name),
 // Backend init.
 
 void
-d_backend_init (void)
+d_backend_init()
 {
   init_global_binding_level();
 
@@ -1400,7 +1400,7 @@ d_backend_init (void)
 // Backend term.
 
 void
-d_backend_term (void)
+d_backend_term()
 {
 }
 

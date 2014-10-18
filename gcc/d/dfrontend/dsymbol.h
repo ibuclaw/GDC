@@ -30,7 +30,6 @@ class Declaration;
 class ThisDeclaration;
 class TypeInfoDeclaration;
 class TupleDeclaration;
-class TypedefDeclaration;
 class AliasDeclaration;
 class AggregateDeclaration;
 class EnumDeclaration;
@@ -82,8 +81,13 @@ typedef union tree_node TYPE;
 struct TYPE;
 #endif
 
-// Back end
-struct Classsym;
+struct Ungag
+{
+    unsigned oldgag;
+
+    Ungag(unsigned old) : oldgag(old) {}
+    ~Ungag() { global.gag = oldgag; }
+};
 
 const char *mangle(Dsymbol *s);
 const char *mangleExact(FuncDeclaration *fd);
@@ -221,7 +225,6 @@ public:
     bool inNonRoot();
 
     // Backend
-
     virtual Symbol *toSymbol();                 // to backend symbol
     virtual void toObjFile(bool multiobj);                       // compile to .obj file
 
@@ -242,7 +245,6 @@ public:
     virtual ThisDeclaration *isThisDeclaration() { return NULL; }
     virtual TypeInfoDeclaration *isTypeInfoDeclaration() { return NULL; }
     virtual TupleDeclaration *isTupleDeclaration() { return NULL; }
-    virtual TypedefDeclaration *isTypedefDeclaration() { return NULL; }
     virtual AliasDeclaration *isAliasDeclaration() { return NULL; }
     virtual AggregateDeclaration *isAggregateDeclaration() { return NULL; }
     virtual FuncDeclaration *isFuncDeclaration() { return NULL; }
@@ -293,6 +295,7 @@ public:
     ScopeDsymbol(Identifier *id);
     Dsymbol *syntaxCopy(Dsymbol *s);
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
+    OverloadSet *mergeOverloadSet(OverloadSet *os, Dsymbol *s);
     void importScope(Dsymbol *s, PROT protection);
     bool isforwardRef();
     static void multiplyDefined(Loc loc, Dsymbol *s1, Dsymbol *s2);

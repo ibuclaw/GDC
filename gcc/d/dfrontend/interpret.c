@@ -33,10 +33,6 @@
 #include "port.h"
 #include "ctfe.h"
 
-#ifdef IN_GCC
-#include "d-dmd-gcc.h"
-#endif
-
 bool walkPostorder(Expression *e, StoppableVisitor *v);
 
 #define LOG     0
@@ -727,8 +723,11 @@ void ctfeCompile(FuncDeclaration *fd)
  */
 Expression *ctfeInterpret(Expression *e)
 {
-    if (e->type == Type::terror)
+    if (e->op == TOKerror)
         return e;
+    //assert(e->type->ty != Terror);    // FIXME
+    if (e->type->ty == Terror)
+        return new ErrorExp();
 
     unsigned olderrors = global.errors;
 

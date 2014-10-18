@@ -100,6 +100,25 @@ Parser::Parser(Loc loc, Module *module, const utf8_t *base, size_t length, int d
 Dsymbols *Parser::parseModule()
 {
     Dsymbols *decldefs;
+    bool isdeprecated = false;
+    Expression *msg = NULL;
+
+    if (token.value == TOKdeprecated)
+    {
+        Token *tk;
+        if (skipParensIf(peek(&token), &tk) && tk->value == TOKmodule)
+        {
+            // deprecated (...) module ...
+            isdeprecated = true;
+            nextToken();
+            if (token.value == TOKlparen)
+            {
+                check(TOKlparen);
+                msg = parseAssignExp();
+                check(TOKrparen);
+            }
+        }
+    }
 
     // ModuleDeclation leads off
     if (token.value == TOKmodule)
@@ -114,7 +133,8 @@ Dsymbols *Parser::parseModule()
         {
             nextToken();
             if (token.value != TOKidentifier)
-            {   error("module (system) identifier expected");
+            {
+                error("module (system) identifier expected");
                 goto Lerr;
             }
             Identifier *id = token.ident;
@@ -129,7 +149,8 @@ Dsymbols *Parser::parseModule()
 #endif
 
         if (token.value != TOKidentifier)
-        {   error("Identifier expected following module");
+        {
+            error("Identifier expected following module");
             goto Lerr;
         }
         else
@@ -145,13 +166,16 @@ Dsymbols *Parser::parseModule()
                 a->push(id);
                 nextToken();
                 if (token.value != TOKidentifier)
-                {   error("Identifier expected following package");
+                {
+                    error("Identifier expected following package");
                     goto Lerr;
                 }
                 id = token.ident;
             }
 
             md = new ModuleDeclaration(loc, a, id, safe);
+            md->isdeprecated = isdeprecated;
+            md->msg = msg;
 
             if (token.value != TOKsemicolon)
                 error("';' expected following module declaration instead of %s", token.toChars());
@@ -1434,16 +1458,10 @@ Dsymbol *Parser::parseStaticCtor()
     nextToken();
     check(TOKlparen);
     check(TOKrparen);
+    StorageClass stc = parsePostfix(NULL);
 
-    //StorageClass stc = parsePostfix(&udas);
-    StaticCtorDeclaration *f = new StaticCtorDeclaration(loc, Loc());
+    StaticCtorDeclaration *f = new StaticCtorDeclaration(loc, Loc(), stc);
     Dsymbol *s = parseContracts(f);
-    //if (udas)
-    //{
-    //    Dsymbols *a = new Dsymbols();
-    //    a->push(f);
-    //    s = new UserAttributeDeclaration(udas, a);
-    //}
     return s;
 }
 
@@ -1463,16 +1481,10 @@ Dsymbol *Parser::parseSharedStaticCtor()
     nextToken();
     check(TOKlparen);
     check(TOKrparen);
+    StorageClass stc = parsePostfix(NULL);
 
-    //StorageClass stc = parsePostfix(&udas);
-    SharedStaticCtorDeclaration *f = new SharedStaticCtorDeclaration(loc, Loc());
+    SharedStaticCtorDeclaration *f = new SharedStaticCtorDeclaration(loc, Loc(), stc);
     Dsymbol *s = parseContracts(f);
-    //if (udas)
-    //{
-    //    Dsymbols *a = new Dsymbols();
-    //    a->push(f);
-    //    s = new UserAttributeDeclaration(udas, a);
-    //}
     return s;
 }
 
@@ -3417,7 +3429,7 @@ Dsymbols *Parser::parseDeclarations(bool autodecl, PrefixAttributes *pAttrs, con
             break;
         }
         case TOKtypedef:
-            deprecation("use of typedef is deprecated; use alias instead");
+            error("use alias instead of typedef");
             tok = token.value;
             nextToken();
             break;
@@ -3548,7 +3560,7 @@ L2:
             }
             if (tok == TOKtypedef)
             {
-                v = new TypedefDeclaration(loc, ident, t, init);
+                v = new AliasDeclaration(loc, ident, t);    // dummy
             }
             else
             {
@@ -5197,6 +5209,10 @@ Statement *Parser::parseStatement(int flags, const utf8_t** endPtr)
             Loc labelloc;
 
             nextToken();
+            StorageClass stc = parsePostfix(NULL);
+            if (stc & (STCconst | STCimmutable | STCshared | STCwild))
+                error("const/immutable/shared/inout attributes are not allowed on asm blocks");
+
             check(TOKlcurly);
             Token *toklist = NULL;
             Token **ptoklist = &toklist;
@@ -5289,7 +5305,7 @@ Statement *Parser::parseStatement(int flags, const utf8_t** endPtr)
                 }
                 break;
             }
-            s = new CompoundStatement(loc, statements);
+            s = new CompoundAsmStatement(loc, statements, stc);
             nextToken();
             break;
         }
@@ -5536,7 +5552,7 @@ Statement *Parser::parseExtAsm()
                 goto Ldone;
 
             case TOKeof:
-                error("unterminated statement");
+                error("matching '}' expected, not end of file");
                 goto Ldone;
 
             default:
@@ -6637,6 +6653,9 @@ Expression *Parser::parsePrimaryExp()
                     {
                         tok2 = token.value;
                         nextToken();
+
+                        if (tok2 == TOKtypedef)
+                            deprecation("typedef is removed");
                     }
                     else
                     {
@@ -6648,7 +6667,8 @@ Expression *Parser::parsePrimaryExp()
                     if (token.value == TOKcomma)
                         tpl = parseTemplateParameterList(1);
                     else
-                    {   tpl = new TemplateParameters();
+                    {
+                        tpl = new TemplateParameters();
                         check(TOKrparen);
                     }
                 }
@@ -6656,7 +6676,8 @@ Expression *Parser::parsePrimaryExp()
                     check(TOKrparen);
             }
             else
-            {   error("(type identifier : specialization) expected following is");
+            {
+                error("(type identifier : specialization) expected following is");
                 goto Lerr;
             }
             e = new IsExp(loc, targ, ident, tok, tspec, tok2, tpl);

@@ -22,6 +22,7 @@
 #include "import.h"
 #include "dsymbol.h"
 #include "hdrgen.h"
+#include "expression.h"
 #include "lexer.h"
 
 #ifdef IN_GCC
@@ -616,7 +617,7 @@ void Module::parse()
                 pkg->mod = this;
             }
             else
-                error(pkg->loc, "from file %s conflicts with package name %s",
+                error(md ? md->loc : loc, "from file %s conflicts with package name %s",
                     srcname, pkg->toChars());
         }
         else
@@ -640,6 +641,14 @@ void Module::importAll(Scope *prevsc)
     {
         error("is a Ddoc file, cannot import it");
         return;
+    }
+
+    if (md && md->msg)
+    {
+        if (StringExp *se = md->msg->toStringExp())
+            md->msg = se;
+        else
+            md->msg->error("string expected, not '%s'", md->msg->toChars());
     }
 
     /* Note that modules get their own scope, from scratch.
@@ -1039,6 +1048,8 @@ ModuleDeclaration::ModuleDeclaration(Loc loc, Identifiers *packages, Identifier 
     this->packages = packages;
     this->id = id;
     this->safe = safe;
+    this->isdeprecated = false;
+    this->msg = NULL;
 }
 
 char *ModuleDeclaration::toChars()
@@ -1234,5 +1245,3 @@ const char *lookForSourceFile(const char *filename)
     }
     return NULL;
 }
-
-

@@ -2,17 +2,13 @@
  * D header file for POSIX.
  *
  * Copyright: Copyright Sean Kelly 2005 - 2009.
- * License:   <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License 1.0</a>.
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Authors:   Sean Kelly,
               Alex Rønne Petersen
  * Standards: The Open Group Base Specifications Issue 6, IEEE Std 1003.1, 2004 Edition
+ * Source:    $(DRUNTIMESRC core/sys/posix/_signal.d)
  */
 
-/*          Copyright Sean Kelly 2005 - 2009.
- * Distributed under the Boost Software License, Version 1.0.
- *    (See accompanying file LICENSE or copy at
- *          http://www.boost.org/LICENSE_1_0.txt)
- */
 module core.sys.posix.signal;
 
 private import core.sys.posix.config;
@@ -23,6 +19,7 @@ public import core.sys.posix.sys.types; // for pid_t
 
 version (Posix):
 extern (C):
+//nothrow:  // this causes Issue 12738
 
 //
 // Required
@@ -91,6 +88,13 @@ version( Posix )
     private alias void function(int) sigfn_t;
     private alias void function(int, siginfo_t*, void*) sigactfn_t;
 
+    // nothrow versions
+    nothrow @nogc
+    {
+        private alias void function(int) sigfn_t2;
+        private alias void function(int, siginfo_t*, void*) sigactfn_t2;
+    }
+
     enum
     {
       SIGEV_SIGNAL,
@@ -104,11 +108,26 @@ version( Posix )
         void*   sival_ptr;
     }
 
-    private extern (C) int __libc_current_sigrtmin();
-    private extern (C) int __libc_current_sigrtmax();
+    version( Solaris )
+    {
+        import core.sys.posix.unistd;
+        private int _sigrtmin() { return cast(int) sysconf(_SC_SIGRT_MIN); }
+        private int _sigrtmax() { return cast(int) sysconf(_SC_SIGRT_MAX); }
 
-    alias __libc_current_sigrtmin SIGRTMIN;
-    alias __libc_current_sigrtmax SIGRTMAX;
+        alias _sigrtmin SIGRTMIN;
+        alias _sigrtmax SIGRTMAX;
+    }
+    else
+    {
+        private extern (C) nothrow @nogc
+        {
+            int __libc_current_sigrtmin();
+            int __libc_current_sigrtmax();
+        }
+
+        alias __libc_current_sigrtmin SIGRTMIN;
+        alias __libc_current_sigrtmax SIGRTMAX;
+    }
 }
 
 version( linux )
@@ -430,6 +449,9 @@ else version (Solaris)
         }
 
         sigset_t sa_mask;
+        version (D_LP64) {}
+        else
+            int[2] sa_resv;
     }
 }
 else version (Android)
@@ -543,9 +565,12 @@ int sigsuspend(in sigset_t*);
 int sigwait(in sigset_t*, int*);
 */
 
+nothrow @nogc
+{
+
 version( linux )
 {
-    enum SIG_HOLD = cast(sigfn_t) 1;
+    enum SIG_HOLD = cast(sigfn_t2) 1;
 
     private enum _SIGSET_NWORDS = 1024 / (8 * c_ulong.sizeof);
 
@@ -638,6 +663,7 @@ version( linux )
             } _sigpoll_t _sigpoll;
         } _sifields_t _sifields;
 
+    nothrow @nogc:
         @property ref pid_t si_pid() { return _sifields._kill.si_pid; }
         @property ref uid_t si_uid() { return _sifields._kill.si_uid; }
         @property ref void* si_addr() { return _sifields._sigfault.si_addr; }
@@ -673,7 +699,7 @@ version( linux )
 }
 else version( OSX )
 {
-    enum SIG_HOLD = cast(sigfn_t) 5;
+    enum SIG_HOLD = cast(sigfn_t2) 5;
 
     alias uint sigset_t;
     // pid_t  (defined in core.sys.types)
@@ -789,7 +815,7 @@ else version( FreeBSD )
 }
 else version (Solaris)
 {
-    enum SIG_HOLD = cast(sigfn_t)2;
+    enum SIG_HOLD = cast(sigfn_t2)2;
 
     struct sigset_t
     {
@@ -1023,7 +1049,7 @@ else
 {
     static assert(false, "Unsupported platform");
 }
-
+}
 
 //
 // XOpen (XSI)
@@ -1296,6 +1322,11 @@ version( linux )
     sigfn_t bsd_signal(int sig, sigfn_t func);
     sigfn_t sigset(int sig, sigfn_t func);
 
+  nothrow:
+  @nogc:
+    sigfn_t2 bsd_signal(int sig, sigfn_t2 func);
+    sigfn_t2 sigset(int sig, sigfn_t2 func);
+
     int killpg(pid_t, int);
     int sigaltstack(in stack_t*, stack_t*);
     int sighold(int);
@@ -1400,6 +1431,11 @@ else version( OSX )
 
     sigfn_t bsd_signal(int sig, sigfn_t func);
     sigfn_t sigset(int sig, sigfn_t func);
+
+  nothrow:
+  @nogc:
+    sigfn_t2 bsd_signal(int sig, sigfn_t2 func);
+    sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
     int sigaltstack(in stack_t*, stack_t*);
@@ -1519,6 +1555,11 @@ else version( FreeBSD )
 
     //sigfn_t bsd_signal(int sig, sigfn_t func);
     sigfn_t sigset(int sig, sigfn_t func);
+
+  nothrow:
+  @nogc:
+    //sigfn_t2 bsd_signal(int sig, sigfn_t2 func);
+    sigfn_t2 sigset(int sig, sigfn_t2 func);
 
     int killpg(pid_t, int);
     int sigaltstack(in stack_t*, stack_t*);
@@ -1640,6 +1681,10 @@ else version (Solaris)
 
     sigfn_t sigset(int sig, sigfn_t func);
 
+  nothrow:
+  @nogc:
+    sigfn_t2 sigset(int sig, sigfn_t2 func);
+
     int killpg(pid_t, int);
     int sigaltstack(in stack_t*, stack_t*);
     int sighold(int);
@@ -1748,6 +1793,10 @@ else version (Android)
 
     sigfn_t bsd_signal(int, sigfn_t);
 
+  nothrow:
+  @nogc:
+    sigfn_t2 bsd_signal(int, sigfn_t2);
+
     int killpg(int, int);
     int sigaltstack(in stack_t*, stack_t*);
     int siginterrupt(int, int);
@@ -1835,6 +1884,9 @@ int sigqueue(pid_t, int, in sigval);
 int sigtimedwait(in sigset_t*, siginfo_t*, in timespec*);
 int sigwaitinfo(in sigset_t*, siginfo_t*);
 */
+
+nothrow:
+@nogc:
 
 version( linux )
 {

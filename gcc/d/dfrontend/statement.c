@@ -635,11 +635,15 @@ int Statement::blockExit(FuncDeclaration *func, bool mustNotThrow)
                     s->finalbody->blockExit(func, mustNotThrow);
             }
 
+        #if 0
+            // Bugzilla 13201: Mask to prevent spurious warnings for
+            // destructor call, exit of synchronized statement, etc.
             if (result == BEhalt && finalresult != BEhalt && s->finalbody &&
                 s->finalbody->hasCode())
             {
                 s->finalbody->warning("statement is not reachable");
             }
+        #endif
 
             if (!(finalresult & BEfallthru))
                 result &= ~BEfallthru;
@@ -689,21 +693,15 @@ int Statement::blockExit(FuncDeclaration *func, bool mustNotThrow)
             result = s->statement ? s->statement->blockExit(func, mustNotThrow) : BEfallthru;
         }
 
-        void visit(AsmStatement *s)
+        void visit(CompoundAsmStatement *s)
         {
-            if (mustNotThrow)
-                s->error("asm statements are assumed to throw", s->toChars());
-            // Assume the worst
-            result = BEfallthru | BEthrow | BEreturn | BEgoto | BEhalt;
-        }
+            if (mustNotThrow && !(s->stc & STCnothrow))
+                s->deprecation("asm statement is assumed to throw - mark it with 'nothrow' if it does not");
 
-#ifdef IN_GCC
-        void visit(ExtAsmStatement *s)
-        {
             // Assume the worst
-            result = BEfallthru | BEthrow | BEreturn | BEgoto | BEhalt;
+            result = BEfallthru | BEreturn | BEgoto | BEhalt;
+            if (!(s->stc & STCnothrow)) result |= BEthrow;
         }
-#endif
 
         void visit(ImportStatement *s)
         {
@@ -1930,12 +1928,16 @@ Statement *ForeachStatement::semantic(Scope *sc)
                             goto Lerror2;
                         }
                     }
-                    TypeSArray *ta = tab->ty == Tsarray ? (TypeSArray *)tab : NULL;
-                    if (ta && !IntRange::fromType(var->type).contains(getIntRange(ta->dim)))
+                    if (tab->ty == Tsarray)
                     {
-                        error("index type '%s' cannot cover index range 0..%llu", arg->type->toChars(), ta->dim->toInteger());
+                        TypeSArray *ta =  (TypeSArray *)tab;
+                        IntRange dimrange = getIntRange(ta->dim);
+                        if (!IntRange::fromType(var->type).contains(dimrange))
+                        {
+                            error("index type '%s' cannot cover index range 0..%llu", arg->type->toChars(), ta->dim->toInteger());
+                        }
+                        key->range = new IntRange(SignExtendedNumber(0), dimrange.imax);
                     }
-                    key->range = new IntRange(SignExtendedNumber(0), dimrange.imax);
                 }
                 else
                 {
@@ -2686,6 +2688,12 @@ Statement *ForeachRangeStatement::semantic(Scope *sc)
     ExpInitializer *ie = new ExpInitializer(loc, (op == TOKforeach) ? lwr : upr);
     key = new VarDeclaration(loc, upr->type->mutableOf(), Lexer::uniqueId("__key"), ie);
     key->storage_class |= STCtemp;
+    SignExtendedNumber lower = getIntRange(lwr).imin;
+    SignExtendedNumber upper = getIntRange(upr).imax;
+    if (lower <= upper)
+    {
+        key->range = new IntRange(lower, upper);
+    }
 
     Identifier *id = Lexer::uniqueId("__limit");
     ie = new ExpInitializer(loc, (op == TOKforeach) ? upr : lwr);
@@ -3194,11 +3202,8 @@ Statement *SwitchStatement::semantic(Scope *sc)
 
     bool needswitcherror = false;
     if (isFinal)
-    {   Type *t = condition->type;
-        while (t && t->ty == Ttypedef)
-        {   // Don't use toBasetype() because that will skip past enums
-            t = ((TypeTypedef *)t)->sym->basetype;
-        }
+    {
+        Type *t = condition->type;
         Dsymbol *ds;
         EnumDeclaration *ed = NULL;
         if (t && ((ds = t->toDsymbol(sc)) != NULL))
@@ -4893,7 +4898,7 @@ bool GotoStatement::checkLabel()
         error("goto skips declaration of with temporary at %s", vd->loc.toChars());
         return true;
     }
-    else
+    else if (!(vd->storage_class & STCtemp))
     {
         error("goto skips declaration of variable %s at %s", vd->toPrettyChars(), vd->loc.toChars());
         return true;
@@ -5067,13 +5072,6 @@ Statement *ExtAsmStatement::semantic(Scope *sc)
     insn = insn->semantic(sc);
     insn->optimize(WANTvalue);
 
-    if (sc->func)
-    {
-        if (sc->func->setUnsafe())
-            error("extended assembler not allowed in @safe function %s",
-                  sc->func->toChars());
-    }
-
     if (insn->op != TOKstring || ((StringExp *) insn)->sz != 1)
         error("instruction template must be a constant char string");
 
@@ -5131,6 +5129,52 @@ Statement *ExtAsmStatement::semantic(Scope *sc)
 }
 
 #endif
+
+/************************ CompoundAsmStatement ***************************************/
+
+CompoundAsmStatement::CompoundAsmStatement(Loc loc, Statements *s, StorageClass stc)
+    : CompoundStatement(loc, s)
+{
+    this->stc = stc;
+}
+
+CompoundAsmStatement *CompoundAsmStatement::syntaxCopy()
+{
+    Statements *a = new Statements();
+    a->setDim(statements->dim);
+    for (size_t i = 0; i < statements->dim; i++)
+    {
+        Statement *s = (*statements)[i];
+        (*a)[i] = s ? s->syntaxCopy() : NULL;
+    }
+    return new CompoundAsmStatement(loc, a, stc);
+}
+
+Statements *CompoundAsmStatement::flatten(Scope *sc)
+{
+    return NULL;
+}
+
+CompoundAsmStatement *CompoundAsmStatement::semantic(Scope *sc)
+{
+    for (size_t i = 0; i < statements->dim; i++)
+    {
+        Statement *s = (*statements)[i];
+        (*statements)[i] = s ? s->semantic(sc) : NULL;
+    }
+
+    assert(sc->func);
+    // use setImpure/setGC when the deprecation cycle is over
+    PURE pure;
+    if (!(stc & STCpure) && (pure = sc->func->isPureBypassingInference()) != PUREimpure && pure != PUREfwdref)
+        deprecation("asm statement is assumed to be impure - mark it with 'pure' if it is not");
+    if (!(stc & STCnogc) && sc->func->isNogcBypassingInference())
+        deprecation("asm statement is assumed to use the GC - mark it with '@nogc' if it does not");
+    if (!(stc & (STCtrusted|STCsafe)) && sc->func->setUnsafe())
+        error("asm statement is assumed to be @system - mark it with '@trusted' if it is not");
+
+    return this;
+}
 
 /************************ ImportStatement ***************************************/
 

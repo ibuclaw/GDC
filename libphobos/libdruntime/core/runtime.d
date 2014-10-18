@@ -12,6 +12,10 @@
  *    (See accompanying file LICENSE or copy at
  *          http://www.boost.org/LICENSE_1_0.txt)
  */
+
+/* NOTE: This file has been patched from the original DMD distribution to
+ * work with the GDC compiler.
+ */
 module core.runtime;
 
 version (Windows) import core.stdc.wchar_ : wchar_t;

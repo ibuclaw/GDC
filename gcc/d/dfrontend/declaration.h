@@ -190,41 +190,13 @@ public:
 
 /**************************************************************/
 
-class TypedefDeclaration : public Declaration
-{
-public:
-    Type *basetype;
-    Initializer *init;
-
-    TypedefDeclaration(Loc loc, Identifier *ident, Type *basetype, Initializer *init);
-    Dsymbol *syntaxCopy(Dsymbol *);
-    void semantic(Scope *sc);
-    void semantic2(Scope *sc);
-    const char *kind();
-    Type *getType();
-    void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
-    Type *htype;
-    Type *hbasetype;
-
-    void toObjFile(bool multiobj);                       // compile to .obj file
-    void toDebug();
-
-    TypedefDeclaration *isTypedefDeclaration() { return this; }
-
-    Symbol *sinit;
-    Symbol *toInitializer();
-    void accept(Visitor *v) { v->visit(this); }
-};
-
-/**************************************************************/
-
 class AliasDeclaration : public Declaration
 {
 public:
     Dsymbol *aliassym;
     Dsymbol *overnext;          // next in overload list
     Dsymbol *import;            // !=NULL if unresolved internal alias for selective import
-    bool inSemantic;
+    int inSemantic;
 
     AliasDeclaration(Loc loc, Identifier *ident, Type *type);
     AliasDeclaration(Loc loc, Identifier *ident, Dsymbol *s);
@@ -401,16 +373,6 @@ class TypeInfoInterfaceDeclaration : public TypeInfoDeclaration
 public:
     TypeInfoInterfaceDeclaration(Type *tinfo);
     static TypeInfoInterfaceDeclaration *create(Type *tinfo);
-
-    void toDt(dt_t **pdt);
-    void accept(Visitor *v) { v->visit(this); }
-};
-
-class TypeInfoTypedefDeclaration : public TypeInfoDeclaration
-{
-public:
-    TypeInfoTypedefDeclaration(Type *tinfo);
-    static TypeInfoTypedefDeclaration *create(Type *tinfo);
 
     void toDt(dt_t **pdt);
     void accept(Visitor *v) { v->visit(this); }
@@ -738,7 +700,6 @@ public:
     Symbol *toSymbol();
     Symbol *toThunkSymbol(int offset);  // thunk version
     void toObjFile(bool multiobj);                       // compile to .obj file
-    bool needsCodegen();
 
     FuncDeclaration *isFuncDeclaration() { return this; }
 
@@ -845,8 +806,8 @@ public:
 class StaticCtorDeclaration : public FuncDeclaration
 {
 public:
-    StaticCtorDeclaration(Loc loc, Loc endloc);
-    StaticCtorDeclaration(Loc loc, Loc endloc, const char *name);
+    StaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc);
+    StaticCtorDeclaration(Loc loc, Loc endloc, const char *name, StorageClass stc);
     Dsymbol *syntaxCopy(Dsymbol *);
     void semantic(Scope *sc);
     AggregateDeclaration *isThis();
@@ -863,7 +824,7 @@ public:
 class SharedStaticCtorDeclaration : public StaticCtorDeclaration
 {
 public:
-    SharedStaticCtorDeclaration(Loc loc, Loc endloc);
+    SharedStaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc);
     Dsymbol *syntaxCopy(Dsymbol *);
     void toCBuffer(OutBuffer *buf, HdrGenState *hgs);
 

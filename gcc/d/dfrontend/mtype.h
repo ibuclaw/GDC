@@ -30,7 +30,6 @@ class StructDeclaration;
 class ClassDeclaration;
 class VarDeclaration;
 class EnumDeclaration;
-class TypedefDeclaration;
 class TypeInfoDeclaration;
 class Dsymbol;
 class TemplateInstance;
@@ -69,7 +68,6 @@ enum ENUMTY
     Tstruct,
     Tenum,
 
-    Ttypedef,
     Tdelegate,
     Tnone,
     Tvoid,
@@ -206,7 +204,6 @@ public:
     static ClassDeclaration *typeinfoclass;
     static ClassDeclaration *typeinfointerface;
     static ClassDeclaration *typeinfostruct;
-    static ClassDeclaration *typeinfotypedef;
     static ClassDeclaration *typeinfopointer;
     static ClassDeclaration *typeinfoarray;
     static ClassDeclaration *typeinfostaticarray;
@@ -872,50 +869,6 @@ public:
     TypeInfoDeclaration *getTypeInfoDeclaration();
     int hasPointers();
     Type *nextOf();
-
-    type *toCtype();
-    void accept(Visitor *v) { v->visit(this); }
-};
-
-class TypeTypedef : public Type
-{
-public:
-    TypedefDeclaration *sym;
-
-    TypeTypedef(TypedefDeclaration *sym);
-    const char *kind();
-    Type *syntaxCopy();
-    d_uns64 size(Loc loc);
-    unsigned alignsize();
-    char *toChars();
-    Type *semantic(Loc loc, Scope *sc);
-    Dsymbol *toDsymbol(Scope *sc);
-    void toDecoBuffer(OutBuffer *buf, int flag);
-    Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    structalign_t alignment();
-    Expression *getProperty(Loc loc, Identifier *ident, int flag);
-    bool isintegral();
-    bool isfloating();
-    bool isreal();
-    bool isimaginary();
-    bool iscomplex();
-    bool isscalar();
-    bool isunsigned();
-    bool checkBoolean();
-    bool isAssignable();
-    bool needsDestruction();
-    bool needsNested();
-    Type *toBasetype();
-    MATCH implicitConvTo(Type *to);
-    MATCH constConv(Type *to);
-    Type *toHeadMutable();
-    Expression *defaultInit(Loc loc);
-    Expression *defaultInitLiteral(Loc loc);
-    bool isZeroInit(Loc loc);
-    dt_t **toDt(dt_t **pdt);
-    TypeInfoDeclaration *getTypeInfoDeclaration();
-    int hasPointers();
-    int hasWild();
 
     type *toCtype();
     void accept(Visitor *v) { v->visit(this); }

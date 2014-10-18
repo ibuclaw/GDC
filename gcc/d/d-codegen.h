@@ -81,7 +81,7 @@ extern tree insert_type_modifiers (tree type, unsigned mod);
 
 extern tree build_two_field_type (tree t1, tree t2, Type *type, const char *n1, const char *n2);
 
-extern tree build_exception_object (void);
+extern tree build_exception_object();
 extern tree build_float_modulus (tree type, tree t1, tree t2);
 
 extern tree indirect_ref (tree type, tree exp);
@@ -161,7 +161,7 @@ extern tree maybe_make_temp (tree t);
 extern bool d_has_side_effects (tree t);
 
 // Array operations
-extern bool array_bounds_check (void);
+extern bool array_bounds_check();
 extern tree d_checked_index (Loc loc, tree index, tree upr, bool inclusive);
 extern tree d_bounds_condition (tree index, tree upr, bool inclusive);
 
@@ -218,7 +218,7 @@ lang_ddecl (tree t)
 
 // Returns D frontend type 'Object' which all classes are derived from.
 inline Type *
-build_object_type (void)
+build_object_type()
 {
   if (ClassDeclaration::object)
     return ClassDeclaration::object->type;
@@ -344,7 +344,7 @@ class ArrayScope
 class AddrOfExpr
 {
  public:
-  AddrOfExpr (void)
+  AddrOfExpr()
   { this->var_ = NULL_TREE; }
 
   tree set (tree exp)
@@ -364,10 +364,10 @@ class CallExpr
     : ce_(ce), argi_(0)
   { }
 
-  tree callee (void)
+  tree callee()
   { return CALL_EXPR_FN (this->ce_); }
 
-  tree nextArg (void)
+  tree nextArg()
   {
     tree result = this->argi_ < call_expr_nargs (this->ce_)
       ? CALL_EXPR_ARG (this->ce_, this->argi_) : NULL_TREE;
@@ -376,7 +376,7 @@ class CallExpr
   }
 
  private:
-  CallExpr (void)
+  CallExpr()
   { }
 
   tree ce_;

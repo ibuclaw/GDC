@@ -80,6 +80,17 @@ void toCBuffer(Module *m, OutBuffer *buf, HdrGenState *hgs)
 {
     if (m->md)
     {
+        if (m->md->isdeprecated)
+        {
+            if (m->md->msg)
+            {
+                buf->writestring("deprecated(");
+                toCBuffer(m->md->msg, buf, hgs);
+                buf->writestring(") ");
+            }
+            else
+                buf->writestring("deprecated ");
+        }
         buf->writestring("module ");
         buf->writestring(m->md->toChars());
         buf->writeByte(';');
@@ -993,12 +1004,6 @@ public:
         buf->writestring(t->sym->toChars());
     }
 
-    void visit(TypeTypedef *t)
-    {
-        //printf("TypeTypedef::toCBuffer2() '%s'\n", t->sym->toChars());
-        buf->writestring(t->sym->toChars());
-    }
-
     void visit(TypeStruct *t)
     {
         TemplateInstance *ti = t->sym->parent->isTemplateInstance();
@@ -1060,14 +1065,6 @@ public:
                     TypeEnum *te = (TypeEnum *)t;
                     buf->printf("cast(%s)", te->sym->toChars());
                     t = te->sym->memtype;
-                    goto L1;
-                }
-
-                case Ttypedef:
-                {
-                    TypeTypedef *tt = (TypeTypedef *)t;
-                    buf->printf("cast(%s)", tt->sym->toChars());
-                    t = tt->sym->basetype;
                     goto L1;
                 }
 

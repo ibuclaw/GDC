@@ -11,10 +11,8 @@
  */
 
 /* NOTE: This file has been patched from the original DMD distribution to
-   work with the GDC compiler.
-   Modified by Iain Buclaw, July 2010
-*/
-
+ * work with the GDC compiler.
+ */
 module rt.lifetime;
 
 import core.stdc.stdlib;
@@ -34,7 +32,7 @@ private
     alias bool function(Object) CollectHandler;
     __gshared CollectHandler collectHandler = null;
 
- extern (C) void _d_monitordelete(Object h, bool det);
+    extern (C) void _d_monitordelete(Object h, bool det);
 
     enum : size_t
     {
@@ -86,7 +84,7 @@ extern (C) Object _d_newclass(const ClassInfo ci)
             attr &= ~BlkAttr.FINALIZE;
         if (ci.m_flags & TypeInfo_Class.ClassFlags.noPointers)
             attr |= BlkAttr.NO_SCAN;
-        p = GC.malloc(ci.init.length, attr);
+        p = GC.malloc(ci.init.length, attr, ci);
         debug(PRINTF) printf(" p = %p\n", p);
     }
 
@@ -382,7 +380,7 @@ static ~this()
 
 
 // we expect this to be called with the lock in place
-void processGCMarks(BlkInfo* cache, scope rt.tlsgc.IsMarkedDg isMarked)
+void processGCMarks(BlkInfo* cache, scope rt.tlsgc.IsMarkedDg isMarked) nothrow
 {
     // called after the mark routine to eliminate block cache data when it
     // might be ready to sweep
@@ -965,7 +963,7 @@ extern (C) void* _d_newitemT(TypeInfo ti)
     else
     {*/
         // allocate a block to hold this item
-        auto ptr = GC.malloc(size, !(ti.next.flags & 1) ? BlkAttr.NO_SCAN : 0);
+        auto ptr = GC.malloc(size, !(ti.next.flags & 1) ? BlkAttr.NO_SCAN : 0, ti);
         debug(PRINTF) printf(" p = %p\n", ptr);
         if(size == ubyte.sizeof)
             *cast(ubyte*)ptr = 0;
@@ -996,7 +994,7 @@ extern (C) void* _d_newitemiT(TypeInfo ti)
         auto isize = initializer.length;
         auto q = initializer.ptr;
 
-        auto ptr = GC.malloc(size, !(ti.next.flags & 1) ? BlkAttr.NO_SCAN : 0);
+        auto ptr = GC.malloc(size, !(ti.next.flags & 1) ? BlkAttr.NO_SCAN : 0, ti);
         debug(PRINTF) printf(" p = %p\n", ptr);
         if (isize == 1)
             *cast(ubyte*)ptr =  *cast(ubyte*)q;
@@ -1141,7 +1139,7 @@ extern (C) CollectHandler rt_getCollectHandler()
 /**
  *
  */
-extern (C) int rt_hasFinalizerInSegment(void* p, in void[] segment)
+extern (C) int rt_hasFinalizerInSegment(void* p, in void[] segment) nothrow
 {
     auto ppv = cast(void**) p;
     if(!p || !*ppv)
@@ -1162,7 +1160,7 @@ extern (C) int rt_hasFinalizerInSegment(void* p, in void[] segment)
 /**
  *
  */
-extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true)
+extern (C) void rt_finalize2(void* p, bool det = true, bool resetMemory = true) nothrow
 {
     debug(PRINTF) printf("rt_finalize2(p = %p)\n", p);
 

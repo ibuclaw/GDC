@@ -277,144 +277,6 @@ bool TupleDeclaration::needThis()
 }
 
 
-/********************************* TypedefDeclaration ****************************/
-
-TypedefDeclaration::TypedefDeclaration(Loc loc, Identifier *id, Type *basetype, Initializer *init)
-    : Declaration(id)
-{
-    this->type = new TypeTypedef(this);
-    this->basetype = basetype->toBasetype();
-    this->init = init;
-    this->htype = NULL;
-    this->hbasetype = NULL;
-    this->loc = loc;
-    this->sinit = NULL;
-}
-
-Dsymbol *TypedefDeclaration::syntaxCopy(Dsymbol *s)
-{
-    Type *basetype = this->basetype->syntaxCopy();
-
-    Initializer *init = NULL;
-    if (this->init)
-        init = this->init->syntaxCopy();
-
-    assert(!s);
-    TypedefDeclaration *st;
-    st = new TypedefDeclaration(loc, ident, basetype, init);
-
-    // Syntax copy for header file
-    if (!htype)      // Don't overwrite original
-    {   if (type)    // Make copy for both old and new instances
-        {   htype = type->syntaxCopy();
-            st->htype = type->syntaxCopy();
-        }
-    }
-    else            // Make copy of original for new instance
-        st->htype = htype->syntaxCopy();
-    if (!hbasetype)
-    {   if (basetype)
-        {   hbasetype = basetype->syntaxCopy();
-            st->hbasetype = basetype->syntaxCopy();
-        }
-    }
-    else
-        st->hbasetype = hbasetype->syntaxCopy();
-
-    return st;
-}
-
-void TypedefDeclaration::semantic(Scope *sc)
-{
-    //printf("TypedefDeclaration::semantic(%s) sem = %d\n", toChars(), sem);
-    if (sem == SemanticStart)
-    {
-        sem = SemanticIn;
-        parent = sc->parent;
-        unsigned int errors = global.errors;
-        Type *savedbasetype = basetype;
-        basetype = basetype->semantic(loc, sc);
-        if (errors != global.errors)
-        {
-            basetype = savedbasetype;
-            sem = SemanticStart;
-            return;
-        }
-        sem = SemanticDone;
-        type = type->addStorageClass(storage_class);
-        Type *savedtype = type;
-        type = type->semantic(loc, sc);
-        if (sc->parent->isFuncDeclaration() && init)
-            semantic2(sc);
-        if (errors != global.errors)
-        {
-            basetype = savedbasetype;
-            type = savedtype;
-            sem = SemanticStart;
-            return;
-        }
-        storage_class |= sc->stc & STCdeprecated;
-        userAttribDecl = sc->userAttribDecl;
-    }
-    else if (sem == SemanticIn)
-    {
-        error("circular definition");
-        basetype = Type::terror;
-        errors = true;
-    }
-}
-
-void TypedefDeclaration::semantic2(Scope *sc)
-{
-    //printf("TypedefDeclaration::semantic2(%s) sem = %d\n", toChars(), sem);
-    if (sem == SemanticDone)
-    {
-        sem = Semantic2Done;
-        basetype->alignment();          // used to detect circular typedef declarations
-        if (init)
-        {
-            Initializer *savedinit = init;
-            unsigned int errors = global.errors;
-            init = init->semantic(sc, basetype, INITinterpret);
-            if (errors != global.errors || init->isErrorInitializer())
-            {
-                init = savedinit;
-                return;
-            }
-
-            ExpInitializer *ie = init->isExpInitializer();
-            if (ie)
-            {
-                if (ie->exp->type == basetype)
-                    ie->exp->type = type;
-            }
-        }
-    }
-}
-
-const char *TypedefDeclaration::kind()
-{
-    return "typedef";
-}
-
-Type *TypedefDeclaration::getType()
-{
-    return type;
-}
-
-void TypedefDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
-{
-    buf->writestring("typedef ");
-    basetype->toCBuffer(buf, ident, hgs);
-    if (init)
-    {
-        buf->writestring(" = ");
-        init->toCBuffer(buf, hgs);
-    }
-    buf->writeByte(';');
-    buf->writenl();
-}
-
 /********************************* AliasDeclaration ****************************/
 
 AliasDeclaration::AliasDeclaration(Loc loc, Identifier *id, Type *type)
@@ -429,7 +291,7 @@ AliasDeclaration::AliasDeclaration(Loc loc, Identifier *id, Type *type)
     this->htype = NULL;
     this->haliassym = NULL;
     this->overnext = NULL;
-    this->inSemantic = false;
+    this->inSemantic = 0;
     assert(type);
 }
 
@@ -445,7 +307,7 @@ AliasDeclaration::AliasDeclaration(Loc loc, Identifier *id, Dsymbol *s)
     this->htype = NULL;
     this->haliassym = NULL;
     this->overnext = NULL;
-    this->inSemantic = false;
+    this->inSemantic = 0;
     assert(s);
 }
 
@@ -490,7 +352,7 @@ void AliasDeclaration::semantic(Scope *sc)
             aliassym->semantic(sc);
         return;
     }
-    this->inSemantic = true;
+    this->inSemantic = 1;
 
     storage_class |= sc->stc & STCdeprecated;
     protection = sc->protection;
@@ -514,8 +376,8 @@ void AliasDeclaration::semantic(Scope *sc)
 
     // Ungag errors when not instantiated DeclDefs scope alias
     Ungag ungag(global.gag);
-    //printf("%s parent = %s, specgag= %d, instantiated = %d\n", toChars(), parent, global.isSpeculativeGagging(), isInstantiated());
-    if (parent && global.isSpeculativeGagging() && !isInstantiated() && !toParent2()->isFuncDeclaration())
+    //printf("%s parent = %s, gag = %d, instantiated = %d\n", toChars(), parent, global.gag, isInstantiated());
+    if (parent && global.gag && !isInstantiated() && !toParent2()->isFuncDeclaration())
     {
         //printf("%s type = %s\n", toPrettyChars(), type->toChars());
         global.gag = 0;
@@ -570,7 +432,7 @@ void AliasDeclaration::semantic(Scope *sc)
     }
     if (overnext)
         ScopeDsymbol::multiplyDefined(Loc(), overnext, this);
-    this->inSemantic = false;
+    this->inSemantic = 0;
 
     if (global.gag && errors != global.errors)
         type = savedtype;
@@ -646,14 +508,12 @@ void AliasDeclaration::semantic(Scope *sc)
         {
             type = savedtype;
             overnext = savedovernext;
-            aliassym = NULL;
-            inSemantic = false;
-            return;
+            s = NULL;
         }
     }
     //printf("setting aliassym %s to %s %s\n", toChars(), s->kind(), s->toChars());
     aliassym = s;
-    this->inSemantic = false;
+    this->inSemantic = 0;
 }
 
 bool AliasDeclaration::overloadInsert(Dsymbol *s)
@@ -712,12 +572,28 @@ Dsymbol *AliasDeclaration::toAlias()
     //printf("AliasDeclaration::toAlias('%s', this = %p, aliassym = %p, kind = '%s')\n", toChars(), this, aliassym, aliassym ? aliassym->kind() : "");
     assert(this != aliassym);
     //static int count; if (++count == 10) *(char*)0=0;
+    if (inSemantic == 1 && type && scope)
+    {
+        inSemantic = 2;
+        unsigned olderrors = global.errors;
+        Dsymbol *s = type->toDsymbol(scope);
+        //printf("[%s] %s, s = %p, this = %p\n", loc.toChars(), type->toChars(), s, this);
+        if (!s || global.errors != olderrors)
+            goto Lerr;
+        s = s->toAlias();
+        if (global.errors != olderrors)
+            goto Lerr;
+
+        aliassym = s;
+        inSemantic = 0;
+    }
     if (inSemantic)
     {
         error("recursive alias declaration");
 
+    Lerr:
         // Avoid breaking "recursive alias" state during errors gagged
-        if (global.isSpeculativeGagging())
+        if (global.gag)
             return this;
 
         aliassym = new AliasDeclaration(loc, ident, Type::terror);
@@ -736,9 +612,9 @@ Dsymbol *AliasDeclaration::toAlias()
     }
     else if (scope)
         semantic(scope);
-    inSemantic = true;
+    inSemantic = 1;
     Dsymbol *s = aliassym ? aliassym->toAlias() : this;
-    inSemantic = false;
+    inSemantic = 0;
     return s;
 }
 
@@ -1041,7 +917,7 @@ void VarDeclaration::semantic(Scope *sc)
     //printf("storage_class = x%x\n", storage_class);
 
     // Calculate type size + safety checks
-    if (sc->func && !sc->intypeof)
+    if (sc->func && !sc->intypeof && !isMember())
     {
         if (storage_class & STCgshared)
         {
@@ -1249,6 +1125,7 @@ Lnomatch:
         v2->parent = this->parent;
         v2->isexp = true;
         aliassym = v2;
+        sem = SemanticDone;
         return;
     }
 
@@ -1469,20 +1346,6 @@ Lnomatch:
             init = new ExpInitializer(loc, e);
             goto Ldtor;
         }
-        else if (type->ty == Ttypedef)
-        {
-            TypeTypedef *td = (TypeTypedef *)type;
-            if (td->sym->init)
-            {
-                init = td->sym->init;
-                ExpInitializer *ie = init->isExpInitializer();
-                if (ie)
-                    // Make copy so we can modify it
-                    init = new ExpInitializer(ie->loc, ie->exp);
-            }
-            else
-                init = getExpInitializer();
-        }
         else if (type->baseElemOf()->ty == Tvoid)
         {
             error("%s does not have a default initializer", type->toChars());
@@ -1501,6 +1364,8 @@ Lnomatch:
         sc->stc &= ~(STC_TYPECTOR | STCpure | STCnothrow | STCnogc | STCref | STCdisable);
 
         ExpInitializer *ei = init->isExpInitializer();
+        if (ei)     // Bugzilla 13424: Preset the required type to fail in FuncLiteralDeclaration::semantic3
+            ei->exp = inferType(ei->exp, type);
 
         // If inside function, there is no semantic3() call
         if (sc->func)
@@ -2055,7 +1920,7 @@ Expression *VarDeclaration::getConstInitializer(bool needFullType)
 
     // Ungag errors when not speculative
     unsigned oldgag = global.gag;
-    if (global.isSpeculativeGagging())
+    if (global.gag)
     {
         Dsymbol *sym = toParent()->isAggregateDeclaration();
         if (sym && !sym->isSpeculative())
@@ -2435,23 +2300,6 @@ TypeInfoInterfaceDeclaration::TypeInfoInterfaceDeclaration(Type *tinfo)
 TypeInfoInterfaceDeclaration *TypeInfoInterfaceDeclaration::create(Type *tinfo)
 {
     return new TypeInfoInterfaceDeclaration(tinfo);
-}
-
-/***************************** TypeInfoTypedefDeclaration *********************/
-
-TypeInfoTypedefDeclaration::TypeInfoTypedefDeclaration(Type *tinfo)
-    : TypeInfoDeclaration(tinfo, 0)
-{
-    if (!Type::typeinfotypedef)
-    {
-        ObjectNotFound(Id::TypeInfo_Typedef);
-    }
-    type = Type::typeinfotypedef->type;
-}
-
-TypeInfoTypedefDeclaration *TypeInfoTypedefDeclaration::create(Type *tinfo)
-{
-    return new TypeInfoTypedefDeclaration(tinfo);
 }
 
 /***************************** TypeInfoPointerDeclaration *********************/

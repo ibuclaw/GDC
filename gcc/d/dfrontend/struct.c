@@ -618,8 +618,8 @@ StructDeclaration::StructDeclaration(Loc loc, Identifier *id)
     : AggregateDeclaration(loc, id)
 {
     zeroInit = 0;       // assume false until we do semantic processing
-    hasIdentityAssign = 0;
-    hasIdentityEquals = 0;
+    hasIdentityAssign = false;
+    hasIdentityEquals = false;
     cpctor = NULL;
     postblit = NULL;
 
@@ -860,13 +860,10 @@ void StructDeclaration::semantic(Scope *sc)
         if (scall)
         {
             unsigned xerrors = global.startGagging();
-            unsigned oldspec = global.speculativeGag;
-            global.speculativeGag = global.gag;
             sc = sc->push();
             sc->speculative = true;
             FuncDeclaration *fcall = resolveFuncCall(loc, sc, scall, NULL, NULL, NULL, 1);
             sc = sc->pop();
-            global.speculativeGag = oldspec;
             global.endGagging(xerrors);
 
             if (fcall && fcall->isStatic())

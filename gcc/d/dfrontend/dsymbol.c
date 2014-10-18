@@ -326,11 +326,21 @@ TemplateInstance *Dsymbol::isSpeculative()
     while (par)
     {
         TemplateInstance *ti = par->isTemplateInstance();
-        if (ti && ti->speculative)
+        if (ti && ti->gagged)
             return ti;
         par = par->toParent();
     }
     return NULL;
+}
+
+Ungag Dsymbol::ungagSpeculative()
+{
+    unsigned oldgag = global.gag;
+
+    if (global.gag && !isSpeculative() && !toParent2()->isFuncDeclaration())
+        global.gag = 0;
+
+    return Ungag(oldgag);
 }
 
 bool Dsymbol::isAnonymous()
@@ -445,6 +455,15 @@ Dsymbol *Dsymbol::searchX(Loc loc, Scope *sc, RootObject *id)
     Dsymbol *s = toAlias();
     Dsymbol *sm;
 
+    if (Declaration *d = s->isDeclaration())
+    {
+        if (d->inuse)
+        {
+            ::error(loc, "circular reference to '%s'", d->toPrettyChars());
+            return NULL;
+        }
+    }
+
     switch (id->dyncast())
     {
         case DYNCAST_IDENTIFIER:
@@ -452,7 +471,8 @@ Dsymbol *Dsymbol::searchX(Loc loc, Scope *sc, RootObject *id)
             break;
 
         case DYNCAST_DSYMBOL:
-        {   // It's a template instance
+        {
+            // It's a template instance
             //printf("\ttemplate instance id\n");
             Dsymbol *st = (Dsymbol *)id;
             TemplateInstance *ti = st->isTemplateInstance();
@@ -915,7 +935,11 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
              */
             Dsymbol *s2 = ss->search(loc, ident, ss->isModule() ? IgnorePrivateMembers : IgnoreNone);
             if (!s)
+            {
                 s = s2;
+                if (s && s->isOverloadSet())
+                    a = mergeOverloadSet(a, s);
+            }
             else if (s2 && s != s2)
             {
                 if (s->toAlias() == s2->toAlias() ||
@@ -956,28 +980,10 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
                         /* If both s2 and s are overloadable (though we only
                          * need to check s once)
                          */
-                        if (s2->isOverloadable() && (a || s->isOverloadable()))
+                        if ((s2->isOverloadSet() || s2->isOverloadable()) &&
+                            (a || s->isOverloadable()))
                         {
-                            if (!a)
-                            {
-                                a = new OverloadSet(s->ident);
-                                a->parent = this;
-                            }
-                            /* Don't add to a[] if s2 is alias of previous sym
-                             */
-                            for (size_t j = 0; j < a->a.dim; j++)
-                            {
-                                Dsymbol *s3 = a->a[j];
-                                if (s2->toAlias() == s3->toAlias())
-                                {
-                                    if (s3->isDeprecated() ||
-                                        s2->prot() > s3->prot() && s2->prot() != PROTnone)
-                                        a->a[j] = s2;
-                                    goto Lcontinue;
-                                }
-                            }
-                            a->push(s2);
-                        Lcontinue:
+                            a = mergeOverloadSet(a, s2);
                             continue;
                         }
                         if (flags & IgnoreAmbiguous)    // if return NULL on ambiguity
@@ -996,7 +1002,8 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
              */
             if (a)
             {
-                a->push(s);
+                if (!s->isOverloadSet())
+                    a = mergeOverloadSet(a, s);
                 s = a;
             }
 
@@ -1010,6 +1017,55 @@ Dsymbol *ScopeDsymbol::search(Loc loc, Identifier *ident, int flags)
     }
 
     return s1;
+}
+
+OverloadSet *ScopeDsymbol::mergeOverloadSet(OverloadSet *os, Dsymbol *s)
+{
+    if (!os)
+    {
+        os = new OverloadSet(s->ident);
+        os->parent = this;
+    }
+    if (OverloadSet *os2 = s->isOverloadSet())
+    {
+        // Merge the cross-module overload set 'os2' into 'os'
+        if (os->a.dim == 0)
+        {
+            os->a.setDim(os2->a.dim);
+            memcpy(os->a.tdata(), os2->a.tdata(), sizeof(os->a[0]) * os2->a.dim);
+        }
+        else
+        {
+            for (size_t i = 0; i < os2->a.dim; i++)
+            {
+                os = mergeOverloadSet(os, os2->a[i]);
+            }
+        }
+    }
+    else
+    {
+        assert(s->isOverloadable());
+
+        /* Don't add to os[] if s is alias of previous sym
+         */
+        for (size_t j = 0; j < os->a.dim; j++)
+        {
+            Dsymbol *s2 = os->a[j];
+            if (s->toAlias() == s2->toAlias())
+            {
+                if (s2->isDeprecated() ||
+                    s->prot() > s2->prot() && s->prot() != PROTnone)
+                {
+                    os->a[j] = s;
+                }
+                goto Lcontinue;
+            }
+        }
+        os->push(s);
+    Lcontinue:
+        ;
+    }
+    return os;
 }
 
 void ScopeDsymbol::importScope(Dsymbol *s, PROT protection)

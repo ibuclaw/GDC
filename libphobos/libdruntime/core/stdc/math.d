@@ -16,6 +16,7 @@ private import core.stdc.config;
 extern (C):
 @trusted: // All functions here operate on floating point and integer values only.
 nothrow:
+@nogc:
 
 alias float  float_t;
 alias double double_t;
@@ -104,12 +105,12 @@ version( none )
 version( DigitalMars )
 {
     version( Win32 )
-        version = DigitalMarsWin32;
+        version = DMC_RUNTIME;
     version( Win64 )
-        version = DigitalMarsWin64;     // just to get it to compile for the moment - fix later
+        version = MSVC_RUNTIME;     // just to get it to compile for the moment - fix later
 }
 
-version( DigitalMarsWin32 )
+version( DMC_RUNTIME )
 {
     enum
     {
@@ -178,7 +179,7 @@ version( DigitalMarsWin32 )
     }
   }
 }
-else version( DigitalMarsWin64 )
+else version( MSVC_RUNTIME )
 {
     enum
     {
@@ -542,6 +543,25 @@ else version( FreeBSD )
     int signbit(float x)        { return __signbitf(x); }
     int signbit(double x)       { return __signbit(x); }
     int signbit(real x)         { return __signbit(x); }
+  }
+}
+else version( Solaris )
+{
+    int __isnanf(float x);
+    int __isnan(double x);
+    int __isnanl(real x);
+
+  extern (D)
+  {
+    //int isnan(real-floating x);
+    int isnan(float x)          { return __isnanf(x);  }
+    int isnan(double x)         { return __isnan(x);   }
+    int isnan(real x)
+    {
+        return (real.sizeof == double.sizeof)
+            ? __isnan(x)
+            : __isnanl(x);
+    }
   }
 }
 else version( Android )

@@ -38,11 +38,11 @@
 #include "root.h"
 #include "dfrontend/target.h"
 
-static tree d_handle_noinline_attribute (tree *, tree, tree, int, bool *);
-static tree d_handle_forceinline_attribute (tree *, tree, tree, int, bool *);
-static tree d_handle_flatten_attribute (tree *, tree, tree, int, bool *);
-static tree d_handle_target_attribute (tree *, tree, tree, int, bool *);
-static tree d_handle_noclone_attribute (tree *, tree, tree, int, bool *);
+static tree d_handle_noinline_attribute(tree *, tree, tree, int, bool *);
+static tree d_handle_forceinline_attribute(tree *, tree, tree, int, bool *);
+static tree d_handle_flatten_attribute(tree *, tree, tree, int, bool *);
+static tree d_handle_target_attribute(tree *, tree, tree, int, bool *);
+static tree d_handle_noclone_attribute(tree *, tree, tree, int, bool *);
 
 
 static char lang_name[6] = "GNU D";
@@ -181,7 +181,7 @@ d_init_options(unsigned int, cl_decoded_option *decoded_options)
 
 /* Initialize options structure OPTS.  */
 static void
-d_init_options_struct (gcc_options *opts)
+d_init_options_struct(gcc_options *opts)
 {
   // GCC options
   opts->x_flag_exceptions = 1;
@@ -205,7 +205,7 @@ d_init_options_struct (gcc_options *opts)
 
 /* Return language mask for option parsing.  */
 static unsigned int
-d_option_lang_mask (void)
+d_option_lang_mask()
 {
   return CL_D;
 }
@@ -232,7 +232,7 @@ d_add_builtin_version(const char* ident)
 }
 
 static bool
-d_init (void)
+d_init()
 {
   if(POINTER_SIZE == 64)
     global.params.isLP64 = true;
@@ -316,7 +316,7 @@ d_init (void)
 }
 
 void
-d_init_ts (void)
+d_init_ts()
 {
   MARK_TS_TYPED (IASM_EXPR);
   MARK_TS_TYPED (FLOAT_MOD_EXPR);
@@ -639,7 +639,7 @@ d_add_global_declaration (tree decl)
 
 // Write out globals.
 static void
-d_write_global_declarations (void)
+d_write_global_declarations()
 {
   if (vec_safe_length (global_declarations) != 0)
     {
@@ -701,7 +701,7 @@ d_gimplify_expr (tree *expr_p, gimple_seq *pre_p ATTRIBUTE_UNUSED,
 
 
 Module *
-d_gcc_get_output_module (void)
+d_gcc_get_output_module()
 {
   return output_module;
 }
@@ -816,7 +816,7 @@ deps_write (Module *m)
 }
 
 void
-d_parse_file (void)
+d_parse_file()
 {
   if (global.params.verbose)
     {
@@ -1171,7 +1171,7 @@ d_parse_file (void)
 }
 
 static tree
-d_type_for_mode (machine_mode mode, int unsignedp)
+d_type_for_mode(machine_mode mode, int unsignedp)
 {
   if (mode == QImode)
     return unsignedp ? ubyte_type_node : byte_type_node;
@@ -1186,125 +1186,125 @@ d_type_for_mode (machine_mode mode, int unsignedp)
     return unsignedp ? ulong_type_node : long_type_node;
 
 #if HOST_BITS_PER_WIDE_INT >= 64
-  if (mode == TYPE_MODE (cent_type_node))
+  if (mode == TYPE_MODE(cent_type_node))
     return unsignedp ? ucent_type_node : cent_type_node;
 #endif
 
-  if (mode == TYPE_MODE (float_type_node))
+  if (mode == TYPE_MODE(float_type_node))
     return float_type_node;
 
-  if (mode == TYPE_MODE (double_type_node))
+  if (mode == TYPE_MODE(double_type_node))
     return double_type_node;
 
-  if (mode == TYPE_MODE (long_double_type_node))
+  if (mode == TYPE_MODE(long_double_type_node))
     return long_double_type_node;
 
-  if (mode == TYPE_MODE (build_pointer_type (char8_type_node)))
-    return build_pointer_type (char8_type_node);
+  if (mode == TYPE_MODE(build_pointer_type(char8_type_node)))
+    return build_pointer_type(char8_type_node);
 
-  if (mode == TYPE_MODE (build_pointer_type (int_type_node)))
-    return build_pointer_type (int_type_node);
+  if (mode == TYPE_MODE(build_pointer_type(int_type_node)))
+    return build_pointer_type(int_type_node);
 
-  if (COMPLEX_MODE_P (mode))
+  if (COMPLEX_MODE_P(mode))
     {
       machine_mode inner_mode;
       tree inner_type;
 
-      if (mode == TYPE_MODE (complex_float_type_node))
+      if (mode == TYPE_MODE(complex_float_type_node))
 	return complex_float_type_node;
-      if (mode == TYPE_MODE (complex_double_type_node))
+      if (mode == TYPE_MODE(complex_double_type_node))
 	return complex_double_type_node;
-      if (mode == TYPE_MODE (complex_long_double_type_node))
+      if (mode == TYPE_MODE(complex_long_double_type_node))
 	return complex_long_double_type_node;
 
-      inner_mode = (machine_mode) GET_MODE_INNER (mode);
-      inner_type = d_type_for_mode (inner_mode, unsignedp);
+      inner_mode = (machine_mode) GET_MODE_INNER(mode);
+      inner_type = d_type_for_mode(inner_mode, unsignedp);
       if (inner_type != NULL_TREE)
-	return build_complex_type (inner_type);
+	return build_complex_type(inner_type);
     }
-  else if (VECTOR_MODE_P (mode))
+  else if (VECTOR_MODE_P(mode))
     {
-      machine_mode inner_mode = (machine_mode) GET_MODE_INNER (mode);
-      tree inner_type = d_type_for_mode (inner_mode, unsignedp);
+      machine_mode inner_mode = (machine_mode) GET_MODE_INNER(mode);
+      tree inner_type = d_type_for_mode(inner_mode, unsignedp);
       if (inner_type != NULL_TREE)
-	return build_vector_type_for_mode (inner_type, mode);
+	return build_vector_type_for_mode(inner_type, mode);
     }
 
   return 0;
 }
 
 static tree
-d_type_for_size (unsigned bits, int unsignedp)
+d_type_for_size(unsigned bits, int unsignedp)
 {
-  if (bits <= TYPE_PRECISION (byte_type_node))
+  if (bits <= TYPE_PRECISION(byte_type_node))
     return unsignedp ? ubyte_type_node : byte_type_node;
 
-  if (bits <= TYPE_PRECISION (short_type_node))
+  if (bits <= TYPE_PRECISION(short_type_node))
     return unsignedp ? ushort_type_node : short_type_node;
 
-  if (bits <= TYPE_PRECISION (int_type_node))
+  if (bits <= TYPE_PRECISION(int_type_node))
     return unsignedp ? uint_type_node : int_type_node;
 
-  if (bits <= TYPE_PRECISION (long_type_node))
+  if (bits <= TYPE_PRECISION(long_type_node))
     return unsignedp ? ulong_type_node : long_type_node;
 
   return 0;
 }
 
 static tree
-d_signed_or_unsigned_type (int unsignedp, tree type)
+d_signed_or_unsigned_type(int unsignedp, tree type)
 {
-  if (!INTEGRAL_TYPE_P (type)
-      || TYPE_UNSIGNED (type) == (unsigned) unsignedp)
+  if (!INTEGRAL_TYPE_P(type)
+      || TYPE_UNSIGNED(type) == (unsigned) unsignedp)
     return type;
 
 #if HOST_BITS_PER_WIDE_INT >= 64
-  if (TYPE_PRECISION (type) == TYPE_PRECISION (cent_type_node))
+  if (TYPE_PRECISION(type) == TYPE_PRECISION(cent_type_node))
     return unsignedp ? ucent_type_node : cent_type_node;
 #endif
-  if (TYPE_PRECISION (type) == TYPE_PRECISION (long_type_node))
+  if (TYPE_PRECISION(type) == TYPE_PRECISION(long_type_node))
     return unsignedp ? ulong_type_node : long_type_node;
-  if (TYPE_PRECISION (type) == TYPE_PRECISION (int_type_node))
+  if (TYPE_PRECISION(type) == TYPE_PRECISION(int_type_node))
     return unsignedp ? uint_type_node : int_type_node;
-  if (TYPE_PRECISION (type) == TYPE_PRECISION (short_type_node))
+  if (TYPE_PRECISION(type) == TYPE_PRECISION(short_type_node))
     return unsignedp ? ushort_type_node : short_type_node;
-  if (TYPE_PRECISION (type) == TYPE_PRECISION (byte_type_node))
+  if (TYPE_PRECISION(type) == TYPE_PRECISION(byte_type_node))
     return unsignedp ? ubyte_type_node : byte_type_node;
 
   return type;
 }
 
 tree
-d_unsigned_type (tree type)
+d_unsigned_type(tree type)
 {
-  return d_signed_or_unsigned_type (1, type);
+  return d_signed_or_unsigned_type(1, type);
 }
 
 tree
-d_signed_type (tree type)
+d_signed_type(tree type)
 {
-  return d_signed_or_unsigned_type (0, type);
+  return d_signed_or_unsigned_type(0, type);
 }
 
 // Type promotion for variable arguments.
 // This is needed for varargs to work on certain targets.
 
 static tree
-d_type_promotes_to (tree type)
+d_type_promotes_to(tree type)
 {
-  tree ptype = targetm.promoted_type (type);
+  tree ptype = targetm.promoted_type(type);
   if (ptype)
     return ptype;
 
-  if (TYPE_MAIN_VARIANT (type) == float_type_node)
+  if (TYPE_MAIN_VARIANT(type) == float_type_node)
     return double_type_node;
 
-  if (INTEGRAL_TYPE_P (type)
-      && (TYPE_PRECISION (type) <= TYPE_PRECISION (integer_type_node)))
+  if (INTEGRAL_TYPE_P(type)
+      && (TYPE_PRECISION(type) <= TYPE_PRECISION(integer_type_node)))
     {
       // Preserve unsignedness if not really getting any wider.
-      if (TYPE_UNSIGNED (type)
-	  && (TYPE_PRECISION (type) == TYPE_PRECISION (integer_type_node)))
+      if (TYPE_UNSIGNED(type)
+	  && (TYPE_PRECISION(type) == TYPE_PRECISION(integer_type_node)))
 	return unsigned_type_node;
 
       return integer_type_node;
@@ -1318,7 +1318,7 @@ struct binding_level *current_binding_level;
 struct binding_level *global_binding_level;
 
 static binding_level *
-alloc_binding_level (void)
+alloc_binding_level()
 {
   return ggc_cleared_alloc<binding_level>();
 }
@@ -1328,7 +1328,7 @@ alloc_binding_level (void)
    otherwise support the backend. */
 
 void
-push_binding_level (void)
+push_binding_level()
 {
   binding_level *new_level = alloc_binding_level();
   new_level->level_chain = current_binding_level;
@@ -1410,7 +1410,7 @@ pop_binding_level (int keep, int routinebody)
 // loops forever.
 
 static bool
-d_global_bindings_p (void)
+d_global_bindings_p()
 {
   if (current_binding_level == global_binding_level)
     return true;
@@ -1419,7 +1419,7 @@ d_global_bindings_p (void)
 }
 
 void
-init_global_binding_level (void)
+init_global_binding_level()
 {
   global_binding_level = alloc_binding_level();
   current_binding_level = global_binding_level;
@@ -1454,7 +1454,7 @@ set_decl_binding_chain (tree decl_chain)
 // Supports dbx and stabs.
 
 static tree
-d_getdecls (void)
+d_getdecls()
 {
   if (current_binding_level)
     return current_binding_level->names;
@@ -1581,7 +1581,7 @@ tree d_eh_personality_decl;
 
 /* Return the GDC personality function decl.  */
 static tree
-d_eh_personality (void)
+d_eh_personality()
 {
   if (!d_eh_personality_decl)
     {
@@ -1607,7 +1607,7 @@ d_build_eh_type_type (tree type)
 }
 
 void
-d_init_exceptions (void)
+d_init_exceptions()
 {
   using_eh_for_cleanups();
 }

@@ -754,32 +754,6 @@ AggregateDeclaration::toInitializer()
   return sinit;
 }
 
-// Create the static initializer for the typedef variable.
-
-Symbol *
-TypedefDeclaration::toInitializer()
-{
-  if (!sinit)
-    sinit = toSymbolX ("__init", 0, 0, "Z");
-
-  if (!sinit->Stree && current_module_decl)
-    {
-      sinit->Stree = build_decl (UNKNOWN_LOCATION, VAR_DECL,
-				 get_identifier (sinit->prettyIdent), type->toCtype());
-      SET_DECL_ASSEMBLER_NAME (sinit->Stree, get_identifier (sinit->Sident));
-      d_keep (sinit->Stree);
-
-      setup_symbol_storage (this, sinit->Stree, true);
-      set_decl_location (sinit->Stree, this);
-
-      TREE_READONLY (sinit->Stree) = 1;
-      DECL_ARTIFICIAL (sinit->Stree) = 1;
-      DECL_CONTEXT (sinit->Stree) = NULL_TREE;
-    }
-
-  return sinit;
-}
-
 // Create the static initializer for the enum.
 
 Symbol *
@@ -839,11 +813,6 @@ EnumDeclaration::toDebug()
   // rest_of_type_compilation.  Can call this on structs though.
   if (RECORD_OR_UNION_TYPE_P (ctype) || TREE_CODE (ctype) == ENUMERAL_TYPE)
     rest_of_type_compilation (ctype, 1);
-}
-
-void
-TypedefDeclaration::toDebug()
-{
 }
 
 void

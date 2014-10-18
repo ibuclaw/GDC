@@ -46,7 +46,7 @@ static vec<FuncDeclaration *> static_dtor_list;
 
 // Construct a new Symbol.
 
-Symbol::Symbol (void)
+Symbol::Symbol()
 {
   this->Sident = NULL;
   this->prettyIdent = NULL;
@@ -861,35 +861,12 @@ VarDeclaration::toObjFile(bool)
 }
 
 void
-TypedefDeclaration::toObjFile(bool)
-{
-  if (type->ty == Terror)
-    {
-      error ("had semantic errors when compiling");
-      return;
-    }
-
-  if (global.params.symdebug)
-    toDebug();
-
-  // Generate TypeInfo
-  type->genTypeInfo(NULL);
-
-  TypeTypedef *tc = (TypeTypedef *) type;
-  if (tc->sym->init && !type->isZeroInit())
-    {
-      // Generate static initialiser
-      toInitializer();
-      sinit->Sdt = tc->sym->init->toDt();
-      sinit->Sreadonly = true;
-      d_finish_symbol (sinit);
-    }
-}
-
-void
 TemplateInstance::toObjFile(bool)
 {
   if (isError (this)|| !members)
+    return;
+
+  if (!needsCodegen())
     return;
 
   for (size_t i = 0; i < members->dim; i++)
@@ -902,7 +879,14 @@ TemplateInstance::toObjFile(bool)
 void
 TemplateMixin::toObjFile(bool)
 {
-  TemplateInstance::toObjFile(false);
+  if (isError (this)|| !members)
+    return;
+
+  for (size_t i = 0; i < members->dim; i++)
+    {
+      Dsymbol *s = (*members)[i];
+      s->toObjFile(false);
+    }
 }
 
 void
@@ -1118,8 +1102,16 @@ output_declaration_p (Dsymbol *dsym)
 	    }
 	}
 
-      if (!fd->needsCodegen())
-	return false;
+      for (FuncDeclaration *fdp = fd; fdp != NULL;)
+	{
+      	  if (!fdp->isInstantiated() && fdp->inNonRoot())
+    	    return false;
+
+      	  if (!fdp->isNested())
+	    break;
+
+	  fdp = fdp->toParent2()->isFuncDeclaration();
+	}
 
       // Not emitting if is implementated in the library.
       if (fd->isArrayOp /* && isLibCallFunction(fd->ident) */)
@@ -1164,16 +1156,16 @@ FuncDeclaration::toObjFile(bool)
   if (global.errors)
     return;
 
+  // Start generating code for this function.
+  gcc_assert(this->semanticRun == PASSsemantic3done);
+  this->semanticRun = PASSobj;
+
   // Nested functions may not have its toObjFile called before the outer
   // function is finished.  GCC requires that nested functions be finished
   // first so we need to arrange for toObjFile to be called earlier.
   FuncDeclaration *fdp = this->toParent2()->isFuncDeclaration();
   if (fdp && fdp->semanticRun < PASSobj)
     fdp->toObjFile(false);
-
-  // Start generating code for this function.
-  gcc_assert(this->semanticRun == PASSsemantic3done);
-  this->semanticRun = PASSobj;
 
   if (global.params.verbose)
     fprintf (global.stdmsg, "function  %s\n", this->toPrettyChars());
@@ -1477,7 +1469,7 @@ output_module_p (Module *m)
 }
 
 void
-d_finish_module (void)
+d_finish_module()
 {
   /* If the target does not directly support static constructors,
      static_ctor_list contains a list of all static constructors defined
@@ -1970,7 +1962,7 @@ static vec<DeferredThunk *> deferred_thunks;
 // Process all deferred thunks in list DEFERRED_THUNKS.
 
 void
-write_deferred_thunks (void)
+write_deferred_thunks()
 {
   for (size_t i = 0; i < deferred_thunks.length(); i++)
     {

@@ -202,14 +202,14 @@ build_vptr_monitor (dt_t **pdt, ClassDeclaration *cd)
 // Build constructors for front-end Initialisers to be written to data segment.
 
 dt_t *
-Initializer::toDt (void)
+Initializer::toDt()
 {
   gcc_unreachable();
   return NULL_TREE;
 }
 
 dt_t *
-VoidInitializer::toDt (void)
+VoidInitializer::toDt()
 {
   // void initialisers are set to 0, just because we need something
   // to set them to in the static data segment.
@@ -219,14 +219,14 @@ VoidInitializer::toDt (void)
 }
 
 dt_t *
-StructInitializer::toDt (void)
+StructInitializer::toDt()
 {
   ::error ("StructInitializer::toDt: we shouldn't emit this (%s)", toChars());
   gcc_unreachable();
 }
 
 dt_t *
-ArrayInitializer::toDt (void)
+ArrayInitializer::toDt()
 {
   Type *tb = type->toBasetype();
   if (tb->ty == Tvector)
@@ -304,7 +304,7 @@ ArrayInitializer::toDt (void)
 }
 
 dt_t *
-ExpInitializer::toDt (void)
+ExpInitializer::toDt()
 {
   tree dt = NULL_TREE;
   exp = exp->optimize (WANTvalue);
@@ -987,17 +987,6 @@ TypeStruct::toDt (dt_t **pdt)
   return pdt;
 }
 
-dt_t **
-TypeTypedef::toDt (dt_t **pdt)
-{
-  if (sym->init)
-    dt_chainon (pdt, sym->init->toDt());
-  else
-    sym->basetype->toDt (pdt);
-
-  return pdt;
-}
-
 /* ================================================================ */
 
 // Verify the runtime TypeInfo sizes.
@@ -1110,46 +1099,6 @@ TypeInfoWildDeclaration::toDt (dt_t **pdt)
   dt_cons (pdt, build_address (tm->vtinfo->toSymbol()->Stree));
 }
 
-
-void
-TypeInfoTypedefDeclaration::toDt (dt_t **pdt)
-{
-  verify_structsize (Type::typeinfotypedef, 7 * Target::ptrsize);
-
-  /* Put out:
-   *  void **vptr;
-   *  monitor_t monitor;
-   *  TypeInfo base;
-   *  char[] name;
-   *  void[] m_init;
-   */
-  gcc_assert (tinfo->ty == Ttypedef);
-
-  TypedefDeclaration *sd = ((TypeTypedef *) tinfo)->sym;
-  sd->basetype = sd->basetype->merge();
-  // Generate vtinfo.
-  sd->basetype->genTypeInfo(NULL);
-  gcc_assert (sd->basetype->vtinfo);
-
-  // vtbl and monitor for TypeInfo_Typedef
-  build_vptr_monitor (pdt, Type::typeinfotypedef);
-
-  // Typeinfo for basetype.
-  dt_cons (pdt, build_address (sd->basetype->vtinfo->toSymbol()->Stree));
-
-  // Name of the typedef declaration.
-  dt_cons (pdt, d_array_string (sd->toPrettyChars()));
-
-  // Default initialiser for typedef.
-  tree tarray = Type::tvoid->arrayOf()->toCtype();
-  if (tinfo->isZeroInit() || !sd->init)
-    dt_cons (pdt, d_array_value (tarray, size_int (0), null_pointer_node));
-  else
-    {
-      tree sinit = build_address (sd->toInitializer()->Stree);
-      dt_cons (pdt, d_array_value (tarray, size_int (sd->type->size()), sinit));
-    }
-}
 
 void
 TypeInfoEnumDeclaration::toDt (dt_t **pdt)

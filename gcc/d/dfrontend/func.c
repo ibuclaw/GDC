@@ -1272,7 +1272,6 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc2->tf = NULL;
         sc2->os = NULL;
         sc2->noctor = 0;
-        sc2->speculative = sc->speculative || isSpeculative() != NULL;
         sc2->userAttribDecl = NULL;
         if (sc2->intypeof == 1) sc2->intypeof = 2;
         sc2->fieldinit = NULL;
@@ -1474,6 +1473,12 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
                 if (inv)
                 {
+                #if 1
+                    // Workaround for bugzilla 13394: For the correct mangling,
+                    // run attribute inference on inv if needed.
+                    inv->functionSemantic();
+                #endif
+
                     //e = new DsymbolExp(Loc(), inv);
                     //e = new CallExp(Loc(), e);
                     //e = e->semantic(sc2);
@@ -1492,6 +1497,13 @@ void FuncDeclaration::semantic3(Scope *sc)
             }
             else
             {
+            #if 1
+                // Workaround for bugzilla 13394: For the correct mangling,
+                // run attribute inference on inv if needed.
+                if (ad->isStructDeclaration() && ad->inv)
+                    ad->inv->functionSemantic();
+            #endif
+
                 // Call invariant virtually
                 Expression *v = new ThisExp(Loc());
                 v->type = vthis->type;
@@ -1526,6 +1538,12 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
                 if (inv)
                 {
+                #if 1
+                    // Workaround for bugzilla 13394: For the correct mangling,
+                    // run attribute inference on inv if needed.
+                    inv->functionSemantic();
+                #endif
+
                     //e = new DsymbolExp(Loc(), inv);
                     //e = new CallExp(Loc(), e);
                     //e = e->semantic(sc2);
@@ -1543,6 +1561,13 @@ void FuncDeclaration::semantic3(Scope *sc)
             }
             else
             {
+            #if 1
+                // Workaround for bugzilla 13394: For the correct mangling,
+                // run attribute inference on inv if needed.
+                if (ad->isStructDeclaration() && ad->inv)
+                    ad->inv->functionSemantic();
+            #endif
+
                 // Call invariant virtually
                 Expression *v = new ThisExp(Loc());
                 v->type = vthis->type;
@@ -1752,16 +1777,12 @@ void FuncDeclaration::semantic3(Scope *sc)
             }
             else if (!hasReturnExp && type->nextOf()->ty != Tvoid)
                 error("has no return statement, but is expected to return a value of type %s", type->nextOf()->toChars());
-            else if (hasReturnExp & 8)               // if inline asm
-            {
-                flags &= ~FUNCFLAGnothrowInprocess;
-            }
             else
             {
                 // Check for errors related to 'nothrow'.
                 unsigned int nothrowErrors = global.errors;
                 int blockexit = fbody->blockExit(this, f->isnothrow);
-                if (f->isnothrow && (global.errors != nothrowErrors) )
+                if (f->isnothrow && (global.errors != nothrowErrors))
                     ::error(loc, "%s '%s' is nothrow yet may throw", kind(), toPrettyChars());
                 if (flags & FUNCFLAGnothrowInprocess)
                 {
@@ -1769,7 +1790,8 @@ void FuncDeclaration::semantic3(Scope *sc)
                     f->isnothrow = !(blockexit & BEthrow);
                 }
 
-                if ((blockexit & BEfallthru) && type->nextOf()->ty != Tvoid)
+                const bool inlineAsm = hasReturnExp & 8;
+                if ((blockexit & BEfallthru) && f->next->ty != Tvoid && !inlineAsm)
                 {
                     Expression *e;
                     error("no return exp; or assert(0); at end of function");
@@ -2171,7 +2193,7 @@ void FuncDeclaration::semantic3(Scope *sc)
         sc = sc->pop();
     }
 
-    /* If this function had speculatively instantiated, error reproduction will be
+    /* If this function had instantiated with gagging, error reproduction will be
      * done by TemplateInstance::semantic.
      * Otherwise, error gagging should be temporarily ungagged by functionSemantic3.
      */
@@ -2198,7 +2220,7 @@ bool FuncDeclaration::functionSemantic()
         semantic(scope);
         global.gag = oldgag;
         if (spec && global.errors != olderrs)
-            spec->errors = global.errors - olderrs != 0;
+            spec->errors = (global.errors - olderrs != 0);
         if (olderrs != global.errors)   // if errors compiling this function
             return false;
     }
@@ -2232,8 +2254,8 @@ bool FuncDeclaration::functionSemantic3()
     if (semanticRun < PASSsemantic3 && scope)
     {
         /* Forward reference - we need to run semantic3 on this function.
-         * If errors are gagged, and it's not part of a speculative
-         * template instance, we need to temporarily ungag errors.
+         * If errors are gagged, and it's not part of a template instance,
+         * we need to temporarily ungag errors.
          */
         TemplateInstance *spec = isSpeculative();
         unsigned olderrs = global.errors;
@@ -2246,7 +2268,7 @@ bool FuncDeclaration::functionSemantic3()
         // If it is a speculatively-instantiated template, and errors occur,
         // we need to mark the template as having errors.
         if (spec && global.errors != olderrs)
-            spec->errors = global.errors - olderrs != 0;
+            spec->errors = (global.errors - olderrs != 0);
         if (olderrs != global.errors)   // if errors compiling this function
             return false;
     }
@@ -3407,7 +3429,8 @@ AggregateDeclaration *FuncDeclaration::isMember2()
  */
 
 int FuncDeclaration::getLevel(Loc loc, Scope *sc, FuncDeclaration *fd)
-{   int level;
+{
+    int level;
     Dsymbol *s;
     Dsymbol *fdparent;
 
@@ -3455,12 +3478,8 @@ int FuncDeclaration::getLevel(Loc loc, Scope *sc, FuncDeclaration *fd)
     return level;
 
 Lerr:
-    Dsymbol *p = toParent2();
-    while (p->toParent2()->isFuncDeclaration())
-        p = p->toParent2();
-
     // Don't give error if in template constraint
-    if (!(sc->flags & SCOPEstaticif) && !p->parent->isTemplateDeclaration())
+    if (!(sc->flags & SCOPEstaticif))
     {
         const char *xstatic = isStatic() ? "static " : "";
         // better diagnostics for static functions
@@ -4259,91 +4278,6 @@ bool FuncDeclaration::hasNestedFrameRefs()
     return false;
 }
 
-/***********************************************
- * Returns true if this function is not defined in non-root module, nor
- * obviously instantiated in non-root module.
- *
- * Note: ti->instantiatingModule does not stabilize until semantic analysis is completed,
- * so don't call this function during semantic analysis to return precise result.
- */
-
-bool FuncDeclaration::needsCodegen()
-{
-    assert(semanticRun == PASSsemantic3done);
-
-    for (FuncDeclaration *fd = this; fd; )
-    {
-        if (!fd->isInstantiated() && fd->inNonRoot())
-            return false;
-        if (fd->isNested())
-            fd = fd->toParent2()->isFuncDeclaration();
-        else
-            break;
-    }
-
-    /* The issue is that if the importee is compiled with a different -debug
-     * setting than the importer, the importer may believe it exists
-     * in the compiled importee when it does not, when the instantiation
-     * is behind a conditional debug declaration.
-     */
-    // workaround for Bugzilla 11239
-    if (global.params.useUnitTests ||
-        global.params.allInst ||
-        global.params.debuglevel)
-    {
-        return true;
-    }
-
-    FuncDeclaration *fd = this;
-Lagain:
-    TemplateInstance *ti = fd->isInstantiated();
-    if (ti && ti->instantiatingModule && !ti->instantiatingModule->isRoot())
-    {
-        Module *mi = ti->instantiatingModule;
-
-        // If mi imports any root modules, we still need to generate the code.
-        for (size_t i = 0; i < Module::amodules.dim; ++i)
-        {
-            Module *m = Module::amodules[i];
-            m->insearch = 0;
-        }
-        bool importsRoot = false;
-        for (size_t i = 0; i < Module::amodules.dim; ++i)
-        {
-            Module *m = Module::amodules[i];
-            if (m->isRoot() && mi->imports(m))
-            {
-                importsRoot = true;
-                break;
-            }
-        }
-        for (size_t i = 0; i < Module::amodules.dim; ++i)
-        {
-            Module *m = Module::amodules[i];
-            m->insearch = 0;
-        }
-        if (!importsRoot)
-        {
-            //printf("instantiated by %s   %s\n", ti->instantiatingModule->toChars(), ti->toChars());
-            return false;
-        }
-    }
-
-    if (fd->isNested())
-    {
-        /* Bugzilla 11863: The enclosing function must have its code generated first.
-         * Therefore if parent is instantiated in non-root, this function also prevent
-         * code generation.
-         */
-        fd = fd->toParent2()->isFuncDeclaration();
-        if (fd)
-            goto Lagain;
-    }
-    //if (AggregateDeclaration *ad = fd->isMember2()) { ... }
-
-    return true;
-}
-
 /*********************************************
  * Return the function's parameter list, and whether
  * it is variadic or not.
@@ -4498,6 +4432,12 @@ const char *FuncLiteralDeclaration::kind()
 
 void FuncLiteralDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 {
+    if (type->ty == Terror)
+    {
+        buf->writestring("__error");
+        return;
+    }
+
     if (tok != TOKreserved)
     {
         buf->writestring(kind());
@@ -4568,9 +4508,6 @@ Dsymbol *CtorDeclaration::syntaxCopy(Dsymbol *s)
 void CtorDeclaration::semantic(Scope *sc)
 {
     //printf("CtorDeclaration::semantic() %s\n", toChars());
-    TypeFunction *tf = (TypeFunction *)type;
-    assert(tf && tf->ty == Tfunction);
-
     if (scope)
     {   sc = scope;
         scope = NULL;
@@ -4583,6 +4520,12 @@ void CtorDeclaration::semantic(Scope *sc)
     FuncDeclaration::semantic(sc);
 
     sc->pop();
+
+    if (errors)
+        return;
+
+    TypeFunction *tf = (TypeFunction *)type;
+    assert(tf && tf->ty == Tfunction);
 
     Dsymbol *parent = toParent2();
     AggregateDeclaration *ad = parent->isAggregateDeclaration();
@@ -4597,7 +4540,8 @@ void CtorDeclaration::semantic(Scope *sc)
         if (sd)
         {
             if (fbody || !(storage_class & STCdisable))
-            {   error("default constructor for structs only allowed with @disable and no body");
+            {
+                error("default constructor for structs only allowed with @disable and no body");
                 storage_class |= STCdisable;
                 fbody = NULL;
             }
@@ -4797,22 +4741,22 @@ void DtorDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
 /********************************* StaticCtorDeclaration ****************************/
 
-StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc)
+StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc)
     : FuncDeclaration(loc, endloc,
-      Identifier::generateId("_staticCtor"), STCstatic, NULL)
+      Identifier::generateId("_staticCtor"), STCstatic | stc, NULL)
 {
 }
 
-StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, const char *name)
+StaticCtorDeclaration::StaticCtorDeclaration(Loc loc, Loc endloc, const char *name, StorageClass stc)
     : FuncDeclaration(loc, endloc,
-      Identifier::generateId(name), STCstatic, NULL)
+      Identifier::generateId(name), STCstatic | stc, NULL)
 {
 }
 
 Dsymbol *StaticCtorDeclaration::syntaxCopy(Dsymbol *s)
 {
     assert(!s);
-    StaticCtorDeclaration *scd = new StaticCtorDeclaration(loc, endloc);
+    StaticCtorDeclaration *scd = new StaticCtorDeclaration(loc, endloc, storage_class);
     return FuncDeclaration::syntaxCopy(scd);
 }
 
@@ -4827,8 +4771,23 @@ void StaticCtorDeclaration::semantic(Scope *sc)
         scope = NULL;
     }
 
+    if (storage_class & STCshared && !isSharedStaticCtorDeclaration())
+    {
+        ::error(loc, "to create a shared static constructor, use 'shared static this'");
+        storage_class &= ~STCshared;
+    }
+
+    if (storage_class & (STCimmutable | STCconst | STCshared | STCwild))
+    {
+        OutBuffer buf;
+        StorageClassDeclaration::stcToCBuffer(&buf, storage_class & (STCimmutable | STCconst | STCshared | STCwild));
+        ::error(loc, "static constructors cannot be %s", buf.peekString());
+    }
+
+    storage_class &= ~STC_TYPECTOR; // remove qualifiers
+
     if (!type)
-        type = new TypeFunction(NULL, Type::tvoid, false, LINKd);
+        type = new TypeFunction(NULL, Type::tvoid, false, LINKd, storage_class);
 
     /* If the static ctor appears within a template instantiation,
      * it could get called multiple times by the module constructors
@@ -4908,15 +4867,15 @@ void StaticCtorDeclaration::toCBuffer(OutBuffer *buf, HdrGenState *hgs)
 
 /********************************* SharedStaticCtorDeclaration ****************************/
 
-SharedStaticCtorDeclaration::SharedStaticCtorDeclaration(Loc loc, Loc endloc)
-    : StaticCtorDeclaration(loc, endloc, "_sharedStaticCtor")
+SharedStaticCtorDeclaration::SharedStaticCtorDeclaration(Loc loc, Loc endloc, StorageClass stc)
+    : StaticCtorDeclaration(loc, endloc, "_sharedStaticCtor", stc)
 {
 }
 
 Dsymbol *SharedStaticCtorDeclaration::syntaxCopy(Dsymbol *s)
 {
     assert(!s);
-    SharedStaticCtorDeclaration *scd = new SharedStaticCtorDeclaration(loc, endloc);
+    SharedStaticCtorDeclaration *scd = new SharedStaticCtorDeclaration(loc, endloc, storage_class);
     return FuncDeclaration::syntaxCopy(scd);
 }
 
