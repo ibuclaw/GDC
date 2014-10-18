@@ -2256,7 +2256,6 @@ StringExp::toElem (IRState *)
   // Array type doesn't match string length if null terminated.
   TREE_TYPE (value) = d_array_type (tb->nextOf(), len);
   TREE_CONSTANT (value) = 1;
-  TREE_READONLY (value) = 1;
 
   switch (tb->ty)
     {

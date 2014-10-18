@@ -140,3 +140,93 @@ Target::critsecsize (void)
 
   gcc_unreachable();
 }
+
+// Returns a Type for the va_list type of the target.
+
+Type *
+Target::va_listType()
+{
+  return Type::tvalist;
+}
+
+// Perform a reinterpret cast of EXPR to type TYPE for use in CTFE.
+// The front end should have already ensured that EXPR is a constant,
+// so we just lower the value to GCC and return the converted CST.
+
+Expression *
+Target::paintAsType(Expression *expr, Type *type)
+{
+  /* We support up to 512-bit values.  */
+  unsigned char buffer[64];
+  tree cst;
+
+  Type *tb = type->toBasetype();
+
+  if (expr->type->isintegral())
+    cst = build_integer_cst(expr->toInteger(), expr->type->toCtype());
+  else if (expr->type->isfloating())
+    cst = build_float_cst(expr->toReal(), expr->type);
+  else if (expr->op == TOKarrayliteral)
+    {
+      // Build array as VECTOR_CST, assumes EXPR is constant.
+      Expressions *elements = ((ArrayLiteralExp *) expr)->elements;
+      vec<constructor_elt, va_gc> *elms = NULL;
+
+      vec_safe_reserve(elms, elements->dim);
+      for (size_t i = 0; i < elements->dim; i++)
+	{
+	  Expression *e = (*elements)[i];
+	  if (e->type->isintegral())
+	    {
+	      tree value = build_integer_cst(e->toInteger(), e->type->toCtype());
+	      CONSTRUCTOR_APPEND_ELT(elms, size_int(i), value);
+	    }
+	  else if (e->type->isfloating())
+	    {
+	      tree value = build_float_cst(e->toReal(), e->type);
+	      CONSTRUCTOR_APPEND_ELT(elms, size_int(i), value);
+	    }
+	  else
+	    gcc_unreachable();
+	}
+
+      // Build vector type.
+      int nunits = ((TypeSArray *) expr->type)->dim->toUInteger();
+      Type *telem = expr->type->nextOf();
+      tree vectype = build_vector_type(telem->toCtype(), nunits);
+
+      cst = build_vector_from_ctor(vectype, elms);
+    }
+  else
+    gcc_unreachable();
+
+  // Encode CST to buffer.
+  int len = native_encode_expr (cst, buffer, sizeof (buffer));
+
+  if (tb->ty == Tsarray)
+    {
+      // Interpret value as a vector of the same size,
+      // then return the array literal.
+      int nunits = ((TypeSArray *) type)->dim->toUInteger();
+      Type *elem = type->nextOf();
+      tree vectype = build_vector_type (elem->toCtype(), nunits);
+
+      cst = native_interpret_expr (vectype, buffer, len);
+
+      Expression *e = build_expression (cst);
+      gcc_assert (e != NULL && e->op == TOKvector);
+
+      return ((VectorExp *) e)->e1;
+    }
+  else
+    {
+      // Normal interpret cast.
+      cst = native_interpret_expr (type->toCtype(), buffer, len);
+
+      Expression *e = build_expression (cst);
+      gcc_assert (e != NULL);
+
+      return e;
+    }
+}
+

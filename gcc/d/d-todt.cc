@@ -120,7 +120,6 @@ dt_container2 (dt_t *dt)
 
   TREE_TYPE (dt) = aggtype;
   CONSTRUCTOR_ELTS (dt) = elts;
-  TREE_READONLY (dt) = 1;
   TREE_STATIC (dt) = 1;
   TREE_CONSTANT (dt) = 1;
 
@@ -157,7 +156,6 @@ dt_container (dt_t **pdt, Type *type, dt_t *dt)
 
       TREE_TYPE (dt) = type->toCtype();
       TREE_CONSTANT (dt) = 1;
-      TREE_READONLY (dt) = 1;
       TREE_STATIC (dt) = 1;
 
       return dt_cons (pdt, dt);

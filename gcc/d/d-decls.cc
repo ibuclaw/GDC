@@ -214,10 +214,6 @@ VarDeclaration::toSymbol()
 	    TREE_READONLY (decl) = 1;
 	  else
 	    csym->Sreadonly = true;
-
-	  // Const doesn't seem to matter for aggregates, so prevent problems.
-	  if (isConst() && isDataseg())
-	    TREE_CONSTANT (decl) = 1;
 	}
 
       // Propagate volatile.
@@ -557,7 +553,7 @@ ClassDeclaration::toSymbol()
 
       DECL_ARTIFICIAL (decl) = 1;
       // ClassInfo cannot be const data, because we use the monitor on it.
-      TREE_CONSTANT (decl) = 0;
+      TREE_READONLY (decl) = 0;
     }
 
   return csym;
@@ -582,7 +578,7 @@ InterfaceDeclaration::toSymbol()
       set_decl_location (decl, this);
 
       DECL_ARTIFICIAL (decl) = 1;
-      TREE_CONSTANT (decl) = 1;
+      TREE_READONLY (decl) = 1;
     }
 
   return csym;
@@ -608,7 +604,6 @@ Module::toSymbol()
 
       DECL_ARTIFICIAL (decl) = 1;
       // Not readonly, moduleinit depends on this.
-      TREE_CONSTANT (decl) = 0;
       TREE_READONLY (decl) = 0;
     }
 
@@ -700,10 +695,9 @@ ClassDeclaration::toVtblSymbol()
       setup_symbol_storage (this, decl, true);
       set_decl_location (decl, this);
 
-      TREE_READONLY (decl) = 1;
-      TREE_CONSTANT (decl) = 1;
-      TREE_ADDRESSABLE (decl) = 1;
-      DECL_ARTIFICIAL (decl) = 1;
+      TREE_READONLY(decl) = 1;
+      TREE_ADDRESSABLE(decl) = 1;
+      DECL_ARTIFICIAL(decl) = 1;
 
       DECL_CONTEXT (decl) = d_decl_context (this);
       DECL_ALIGN (decl) = TARGET_VTABLE_ENTRY_ALIGN;
@@ -752,7 +746,6 @@ AggregateDeclaration::toInitializer()
 
       TREE_ADDRESSABLE (sinit->Stree) = 1;
       TREE_READONLY (sinit->Stree) = 1;
-      TREE_CONSTANT (sinit->Stree) = 1;
       DECL_ARTIFICIAL (sinit->Stree) = 1;
       // These initialisers are always global.
       DECL_CONTEXT (sinit->Stree) = NULL_TREE;
@@ -779,7 +772,6 @@ TypedefDeclaration::toInitializer()
       setup_symbol_storage (this, sinit->Stree, true);
       set_decl_location (sinit->Stree, this);
 
-      TREE_CONSTANT (sinit->Stree) = 1;
       TREE_READONLY (sinit->Stree) = 1;
       DECL_ARTIFICIAL (sinit->Stree) = 1;
       DECL_CONTEXT (sinit->Stree) = NULL_TREE;
@@ -812,7 +804,6 @@ EnumDeclaration::toInitializer()
       setup_symbol_storage (this, sinit->Stree, true);
       set_decl_location (sinit->Stree, this);
 
-      TREE_CONSTANT (sinit->Stree) = 1;
       TREE_READONLY (sinit->Stree) = 1;
       DECL_ARTIFICIAL (sinit->Stree) = 1;
       DECL_CONTEXT (sinit->Stree) = NULL_TREE;

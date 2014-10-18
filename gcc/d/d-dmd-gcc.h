@@ -33,9 +33,6 @@
 // Used in module.c
 extern void d_gcc_magic_module (Module *);
 
-// Used in ctfeexpr.c
-extern Expression *d_gcc_paint_type (Expression *, Type *);
-
 
 // Functions defined in the frontend, but used in the glue interface.
 

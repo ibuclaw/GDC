@@ -16,6 +16,7 @@
 // At present it is incomplete, but in future it should grow to contain
 // most or all target machine and target O/S specific information.
 
+class Expression;
 class Type;
 
 struct Target
@@ -30,6 +31,8 @@ struct Target
     static unsigned alignsize(Type* type);
     static unsigned fieldalign(Type* type);
     static unsigned critsecsize();
+    static Type *va_listType();  // get type of va_list
+    static Expression *paintAsType(Expression *e, Type *type);
 };
 
 #endif

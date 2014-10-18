@@ -1041,6 +1041,20 @@ Type *Type::addSTC(StorageClass stc)
 }
 
 /************************************
+ * Convert MODxxxx to STCxxx
+ */
+
+StorageClass ModToStc(unsigned mod)
+{
+    StorageClass stc;
+    if (mod & MODimmutable) stc |= STCimmutable;
+    if (mod & MODconst)     stc |= STCconst;
+    if (mod & MODwild)      stc |= STCwild;
+    if (mod & MODshared)    stc |= STCshared;
+    return stc;
+}
+
+/************************************
  * Apply MODxxxx bits to existing type.
  */
 
@@ -4743,6 +4757,29 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
             //   AA assumes that its result is consistent with bitwise equality.
             // else:
             //   bitwise equality & hashing
+
+        #if 1
+            /* Note that this diagnostic error report should be removed in near future.
+             * See also bugzilla 13074.
+             */
+
+            // duplicate a part of StructDeclaration::semanticTypeInfoMembers
+            if (sd->xcmp &&
+                sd->xcmp->scope &&
+                sd->xcmp->semanticRun < PASSsemantic3done)
+            {
+                unsigned errors = global.startGagging();
+                sd->xcmp->semantic3(sd->xcmp->scope);
+                if (global.endGagging(errors))
+                    sd->xcmp = sd->xerrcmp;
+            }
+            if (sd->xcmp && sd->xcmp != sd->xerrcmp)
+            {
+                error(loc, "%sAA key type %s now requires equality rather than comparison",
+                    s, sd->toChars());
+                errorSupplemental(loc, "Please define opEquals, or remove opCmp to also rely on default memberwise comparison.");
+            }
+        #endif
         }
         else if (sd->xeq == sd->xerreq)
         {
@@ -4782,6 +4819,39 @@ printf("index->ito->ito = x%x\n", index->ito->ito);
              * With 'arr' field equality and hashing, compiler will implicitly
              * generate functions for xopEquals and xtoHash in TypeInfo_Struct.
              */
+        }
+    }
+    else if (tbase->ty == Tclass && !((TypeClass *)tbase)->sym->isInterfaceDeclaration())
+    {
+        ClassDeclaration *cd = ((TypeClass *)tbase)->sym;
+        if (cd->scope)
+            cd->semantic(NULL);
+
+        if (!ClassDeclaration::object)
+        {
+            error(Loc(), "missing or corrupt object.d");
+            fatal();
+        }
+
+        static FuncDeclaration *feq   = NULL;
+        static FuncDeclaration *fcmp  = NULL;
+        static FuncDeclaration *fhash = NULL;
+        if (!feq)   feq   = search_function(ClassDeclaration::object, Id::eq)->isFuncDeclaration();
+        if (!fcmp)  fcmp  = search_function(ClassDeclaration::object, Id::cmp)->isFuncDeclaration();
+        if (!fhash) fhash = search_function(ClassDeclaration::object, Id::tohash)->isFuncDeclaration();
+        assert(fcmp && feq && fhash);
+
+        if (feq ->vtblIndex < cd->vtbl.dim && cd->vtbl[feq ->vtblIndex] == feq)
+        {
+        #if 1
+            if (fcmp->vtblIndex < cd->vtbl.dim && cd->vtbl[fcmp->vtblIndex] != fcmp)
+            {
+                const char *s = (index->toBasetype()->ty != Tclass) ? "bottom of " : "";
+                error(loc, "%sAA key type %s now requires equality rather than comparison",
+                    s, cd->toChars());
+                errorSupplemental(loc, "Please override Object.opEquals and toHash.");
+            }
+        #endif
         }
     }
     next = next->semantic(loc,sc)->merge2();
@@ -6518,7 +6588,9 @@ void TypeQualified::resolveHelper(Loc loc, Scope *sc,
                 if (v->storage_class & (STCconst | STCimmutable | STCmanifest) ||
                     v->type->isConst() || v->type->isImmutable())
                 {
-                    goto L3;
+                    // Bugzilla 13087: this.field is not constant always
+                    if (!v->isThisDeclaration())
+                        goto L3;
                 }
             }
             if (!sm)
@@ -8201,7 +8273,8 @@ bool TypeStruct::isAssignable()
      * then one cannot assign this struct.
      */
     for (size_t i = 0; i < sym->fields.dim; i++)
-    {   VarDeclaration *v = sym->fields[i];
+    {
+        VarDeclaration *v = sym->fields[i];
         //printf("%s [%d] v = (%s) %s, v->offset = %d, v->parent = %s", sym->toChars(), i, v->kind(), v->toChars(), v->offset, v->parent->kind());
         if (i == 0)
             ;
