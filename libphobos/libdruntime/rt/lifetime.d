@@ -1972,12 +1972,14 @@ extern (C) void[] _d_arraycatnT(const TypeInfo ti, uint n, ...)
     size_t length;
     va_list va;
     auto size = ti.next.tsize;   // array element size
+    Array b = void;              // passed argument we are concatenating
 
-    va_start!(typeof(n))(va, n);
+    va_start!(uint)(va, n);
 
     for (auto i = 0; i < n; i++)
     {
-        auto b = va_arg!(byte[])(va);
+        b.length = va_arg!(size_t)(va);
+        b.data = va_arg!(byte*)(va);
         length += b.length;
     }
     if (!length)
@@ -1989,15 +1991,16 @@ extern (C) void[] _d_arraycatnT(const TypeInfo ti, uint n, ...)
     __setArrayAllocLength(info, allocsize, isshared);
     void *a = __arrayStart (info);
 
-    va_start!(typeof(n))(va, n);
+    va_start!(uint)(va, n);
 
     size_t j = 0;
     for (auto i = 0; i < n; i++)
     {
-        auto b = va_arg!(byte[])(va);
+        b.length = va_arg!(size_t)(va);
+        b.data = va_arg!(byte*)(va);
         if (b.length)
         {
-            memcpy(a + j, b.ptr, b.length * size);
+            memcpy(a + j, b.data, b.length * size);
             j += b.length * size;
         }
     }
