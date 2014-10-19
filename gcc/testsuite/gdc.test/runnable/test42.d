@@ -4245,19 +4245,14 @@ int bug3809()
 {
     version(GNU)
     {
-        version(X86) asm
-        {
-            "nop;" : :  :;
-        }
-        else version(X86_64) asm
-        {
-            "nop;" : : :;
-        }
-        else version(ARM) asm
-        {
-            "nop;" : : :;
-        }
-        else static assert(false, "ASM code not implemented for this architecture");
+        version(X86)
+            asm { "nop"; }
+        else version(X86_64)
+            asm { "nop"; }
+        else version(ARM)
+            asm { "nop"; }
+        else
+            static assert(false, "ASM code not implemented for this architecture");
     }
     else
     {

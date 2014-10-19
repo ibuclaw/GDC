@@ -10,8 +10,18 @@ compilable/deprecate12979a.d(13): Deprecation: asm statement is assumed to throw
 
 void foo() nothrow
 {
-    asm
+    version(GNU)
     {
-        ret;
+        asm
+        {
+            "";
+        }
+    }
+    else
+    {
+        asm
+        {
+            ret;
+        }
     }
 }

@@ -4417,6 +4417,12 @@ void FuncLiteralDeclaration::modifyReturns(Scope *sc, Type *tret)
     if (semanticRun < PASSsemantic3done)
         return;
 
+    // Update the inferred function type to match the new return type.
+    // This is required so the code generator does not try to cast the
+    // modified returns back to the original type.
+    if (inferRetType && type->nextOf() != tret)
+        ((TypeFunction *)type)->next = tret;
+
     RetWalker w;
     w.sc = sc;
     w.tret = tret;

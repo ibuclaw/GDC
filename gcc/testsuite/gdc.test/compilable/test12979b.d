@@ -2,17 +2,37 @@
 
 void foo() pure nothrow @nogc @safe
 {
-    asm pure nothrow @nogc @trusted
+    version(GNU)
     {
-        ret;
+        asm pure nothrow @nogc @trusted
+        {
+            "";
+        }
+    }
+    else
+    {
+        asm pure nothrow @nogc @trusted
+        {
+            ret;
+        }
     }
 }
 
 void bar()()
 {
-    asm pure nothrow @nogc @trusted
+    version(GNU)
     {
-        ret;
+        asm pure nothrow @nogc @trusted
+        {
+            "";
+        }
+    }
+    else
+    {
+        asm pure nothrow @nogc @trusted
+        {
+            ret;
+        }
     }
 }
 
@@ -20,9 +40,19 @@ static assert(__traits(compiles, () pure nothrow @nogc @safe => bar()));
 
 void baz()()
 {
-    asm
+    version(GNU)
     {
-        ret;
+        asm
+        {
+            "";
+        }
+    }
+    else
+    {
+        asm
+        {
+            ret;
+        }
     }
 }
 

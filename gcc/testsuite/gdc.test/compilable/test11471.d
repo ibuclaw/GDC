@@ -1,4 +1,10 @@
 // REQUIRED_ARGS: -profile
 
 void main() nothrow
-{ asm { nop; } } // Error: asm statements are assumed to throw
+{
+    // Error: asm statements are assumed to throw
+    version(GNU)
+        asm { ""; }
+    else
+        asm { nop; }
+}

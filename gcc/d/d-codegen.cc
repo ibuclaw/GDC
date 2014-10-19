@@ -261,11 +261,11 @@ convert_expr (tree exp, Type *etype, Type *totype)
 	if (totype->size() == etype->size())
 	  {
 	    // Allowed to cast to structs with same type size.
-	    result = build_vconvert (totype->toCtype(), exp);
+	    result = build_vconvert(totype->toCtype(), exp);
 	  }
 	else
 	  {
-	    error ("can't convert struct %s to %s", etype->toChars(), totype->toChars());
+	    error("can't convert struct %s to %s", etype->toChars(), totype->toChars());
 	    return error_mark_node;
 	  }
       }
@@ -279,52 +279,50 @@ convert_expr (tree exp, Type *etype, Type *totype)
 	ClassDeclaration *cdto = ebtype->isClassHandle();
 	int offset;
 
-	if (cdfrom->isBaseOf (cdto, &offset) && offset != OFFSET_RUNTIME)
+	if (cdfrom->cpp)
+	  {
+	    // Downcasting in C++ is a no-op.
+	    if (cdto->cpp)
+	      break;
+
+	    // Casting from a C++ interface to a class/non-C++ interface
+	    // always results in null as there is no runtime information,
+	    // and no way one can derive from the other.
+	    warning(OPT_Wcast_result, "cast to %s will produce null result", totype->toChars());
+	    result = d_convert(totype->toCtype(), null_pointer_node);
+
+	    // Make sure the expression is still evaluated if necessary
+	    if (TREE_SIDE_EFFECTS(exp))
+	      result = compound_expr(exp, result);
+
+	    return result;
+	  }
+
+	if (cdfrom->isBaseOf(cdto, &offset) && offset != OFFSET_RUNTIME)
 	  {
 	    // Casting up the inheritance tree: Don't do anything special.
 	    // Cast to an implemented interface: Handle at compile time.
 	    if (offset)
 	      {
 		tree t = totype->toCtype();
-		exp = maybe_make_temp (exp);
-		return build3 (COND_EXPR, t,
-			       build_boolop (NE_EXPR, exp, null_pointer_node),
-			       build_nop (t, build_offset (exp, size_int (offset))),
-			       build_nop (t, null_pointer_node));
+		exp = maybe_make_temp(exp);
+		return build3(COND_EXPR, t,
+			      build_boolop(NE_EXPR, exp, null_pointer_node),
+			      build_nop(t, build_offset(exp, size_int(offset))),
+			      build_nop(t, null_pointer_node));
 	      }
 
 	    // d_convert will make a no-op cast
 	    break;
 	  }
 
-	// More cases for no-op cast
-	if (cdfrom == cdto)
-	  break;
-
-	if (cdfrom->cpp && cdto->cpp)
-	  break;
-
-	// Casting from a C++ interface to a class/non-C++ interface
-	// always results in null as there is no runtime information,
-	// and no way one can derive from the other.
-	if (cdto->isCOMclass() || cdfrom->cpp != cdto->cpp)
-	  {
-	    warning (OPT_Wcast_result, "cast to %s will produce null result", totype->toChars());
-	    result = d_convert (totype->toCtype(), null_pointer_node);
-	    // Make sure the expression is still evaluated if necessary
-	    if (TREE_SIDE_EFFECTS (exp))
-	      result = compound_expr (exp, result);
-
-	    return result;
-	  }
-
 	// The offset can only be determined at runtime, do dynamic cast
 	tree args[2];
 	args[0] = exp;
-	args[1] = build_address (cdfrom->toSymbol()->Stree);
+	args[1] = build_address(cdfrom->toSymbol()->Stree);
 
-	return build_libcall (cdto->isInterfaceDeclaration()
-			      ? LIBCALL_INTERFACE_CAST : LIBCALL_DYNAMIC_CAST, 2, args);
+	return build_libcall(cdto->isInterfaceDeclaration()
+			     ? LIBCALL_INTERFACE_CAST : LIBCALL_DYNAMIC_CAST, 2, args);
       }
       // else default conversion
       break;
