@@ -1247,14 +1247,11 @@ get_object_method (tree thisexp, Expression *objexp, FuncDeclaration *func, Type
       // Interface methods are also in the class's vtable, so we don't
       // need to convert from a class pointer to an interface pointer.
       thisexp = maybe_make_temp (thisexp);
-      tree vtbl_ref = build_deref (thisexp);
-      // The vtable is the first field.
-      tree field = TYPE_FIELDS (TREE_TYPE (vtbl_ref));
-      tree fntype = TREE_TYPE (func->toSymbol()->Stree);
 
-      vtbl_ref = component_ref (vtbl_ref, field);
-      vtbl_ref = build_offset (vtbl_ref, size_int (Target::ptrsize * func->vtblIndex));
-      vtbl_ref = indirect_ref (build_pointer_type (fntype), vtbl_ref);
+      // Remember this as a method reference, for later devirtualization.
+      tree method = build_address (func->toSymbol()->Stree);
+      tree idx = size_int (Target::ptrsize * func->vtblIndex);
+      tree vtbl_ref = build3 (OBJ_TYPE_REF, TREE_TYPE (method), method, thisexp, idx);
 
       return build_method_call (vtbl_ref, thisexp, type);
     }

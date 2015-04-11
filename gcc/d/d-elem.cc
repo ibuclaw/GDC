@@ -1736,7 +1736,7 @@ DotVarExp::toElem (IRState *irs)
       var_decl = var->isVarDeclaration();
       if (func_decl)
       {
-	// if Tstruct, objInstanceMethod will use the address of e1
+	// if Tstruct, get_object_method will use the address of e1
 	if (func_decl->isThis())
 	  return get_object_method (e1->toElem (irs), e1, func_decl, type);
 	else
