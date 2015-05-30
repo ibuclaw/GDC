@@ -121,17 +121,36 @@ Dsymbol::toObjFile(bool)
 	      AliasDeclaration *aliasdecl = imp->aliasdecls[i];
 	      Dsymbol *dsym = aliasdecl->toAlias();
 	      Identifier *alias = imp->aliases[i];
+	      tree decl;
 
-              // Skip over importing non-decls, templates, and tuples.
-	      if (dsym == aliasdecl || !dsym->isDeclaration()
+	      // Skip over importing non-decls, templates, and tuples.
+	      if ((dsym == aliasdecl && aliasdecl->type == NULL)
+		  || !dsym->isDeclaration()
 		  || dsym->isTupleDeclaration())
 		continue;
 
-	      tree decl = dsym->toImport()->Stree;
-	      set_decl_location (decl, imp);
+	      if (dsym != aliasdecl)
+		decl = dsym->toImport()->Stree;
+	      else
+		{
+		  // FIXME: Type imports should be part of the same routine
+		  // as declaration imports.
+		  gcc_assert(aliasdecl->type != NULL);
+
+		  tree type = build_ctype(aliasdecl->type);
+
+		  if (!TYPE_STUB_DECL (type))
+		    continue;
+
+		  decl = make_node (IMPORTED_DECL);
+		  TREE_TYPE (decl) = void_type_node;
+		  IMPORTED_DECL_ASSOCIATED_DECL (decl) = TYPE_STUB_DECL (type);
+		  d_keep (decl);
+		}
+	      set_decl_location(decl, imp);
 
 	      tree name = (alias != NULL)
-		? get_identifier (alias->string) : NULL_TREE;
+		? get_identifier(alias->string) : NULL_TREE;
 
 	      (*debug_hooks->imported_module_or_decl) (decl, name, context, false);
 	    }
