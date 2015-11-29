@@ -28,6 +28,7 @@
 #include "dfrontend/hdrgen.h"
 #include "dfrontend/doc.h"
 #include "dfrontend/json.h"
+#include "dfrontend/lexer.h"
 #include "dfrontend/module.h"
 #include "dfrontend/scope.h"
 #include "dfrontend/statement.h"
@@ -132,6 +133,7 @@ static char lang_name[6] = "GNU D";
 static const char *fonly_arg;
 
 /* List of modules being compiled.  */
+Modules builtin_modules;
 Modules output_modules;
 
 static Module *output_module = NULL;
@@ -238,6 +240,7 @@ d_init()
   if(POINTER_SIZE == 64)
     global.params.isLP64 = true;
 
+  Lexer::initLexer();
   Type::init();
   Id::initialize();
   Module::init();
@@ -882,9 +885,9 @@ deps_write (Module *m)
 static GTY(()) vec<tree, va_gc> *global_declarations;
 
 void
-d_add_global_declaration (tree decl)
+d_add_global_declaration(tree decl)
 {
-  vec_safe_push (global_declarations, decl);
+  vec_safe_push(global_declarations, decl);
 }
 
 void
@@ -892,27 +895,27 @@ d_parse_file()
 {
   if (global.params.verbose)
     {
-      fprintf (global.stdmsg, "binary    %s\n", global.params.argv0);
-      fprintf (global.stdmsg, "version   %s\n", global.version);
+      fprintf(global.stdmsg, "binary    %s\n", global.params.argv0);
+      fprintf(global.stdmsg, "version   %s\n", global.version);
     }
 
   // Start the main input file, if the debug writer wants it.
   if (debug_hooks->start_end_main_source_file)
-    (*debug_hooks->start_source_file) (0, main_input_filename);
+    (*debug_hooks->start_source_file)(0, main_input_filename);
 
   for (TY ty = (TY) 0; ty < TMAX; ty = (TY) (ty + 1))
     {
       if (Type::basic[ty] && ty != Terror)
-	d_nametype (Type::basic[ty]);
+	d_nametype(Type::basic[ty]);
     }
 
   // Create Modules
   Modules modules;
-  modules.reserve (num_in_fnames);
+  modules.reserve(num_in_fnames);
 
   if (!main_input_filename || !main_input_filename[0])
     {
-      error ("input file name required; cannot use stdin");
+      error("input file name required; cannot use stdin");
       goto had_errors;
     }
 
@@ -920,20 +923,20 @@ d_parse_file()
     {
       /* In this mode, the first file name is supposed to be
 	 a duplicate of one of the input file. */
-      if (strcmp (fonly_arg, main_input_filename))
-	error ("-fonly= argument is different from main input file name");
-      if (strcmp (fonly_arg, in_fnames[0]))
-	error ("-fonly= argument is different from first input file name");
+      if (strcmp(fonly_arg, main_input_filename))
+	error("-fonly= argument is different from main input file name");
+      if (strcmp(fonly_arg, in_fnames[0]))
+	error("-fonly= argument is different from first input file name");
     }
 
   for (size_t i = 0; i < num_in_fnames; i++)
     {
-      //fprintf (global.stdmsg, "fn %d = %s\n", i, in_fnames[i]);
-      char *fname = xstrdup (in_fnames[i]);
+      //fprintf(global.stdmsg, "fn %d = %s\n", i, in_fnames[i]);
+      char *fname = xstrdup(in_fnames[i]);
 
       // Strip path
-      const char *path = FileName::name (fname);
-      const char *ext = FileName::ext (path);
+      const char *path = FileName::name(fname);
+      const char *ext = FileName::ext(path);
       char *name;
       size_t pathlen;
 
@@ -941,42 +944,42 @@ d_parse_file()
 	{
 	  // Skip onto '.'
 	  ext--;
-	  gcc_assert (*ext == '.');
+	  gcc_assert(*ext == '.');
 	  pathlen = (ext - path);
-	  name = (char *) xmalloc (pathlen + 1);
-	  memcpy (name, path, pathlen);
+	  name = (char *) xmalloc(pathlen + 1);
+	  memcpy(name, path, pathlen);
 	  // Strip extension
 	  name[pathlen] = '\0';
 
 	  if (name[0] == '\0'
-	      || strcmp (name, "..") == 0
-	      || strcmp (name, ".") == 0)
+	      || strcmp(name, "..") == 0
+	      || strcmp(name, ".") == 0)
 	    {
-	      error ("invalid file name '%s'", fname);
+	      error("invalid file name '%s'", fname);
 	      goto had_errors;
 	    }
 	}
       else
 	{
-	  pathlen = strlen (path);
-	  name = (char *) xmalloc (pathlen);
-	  memcpy (name, path, pathlen);
+	  pathlen = strlen(path);
+	  name = (char *) xmalloc(pathlen);
+	  memcpy(name, path, pathlen);
 
 	  if (name[0] == '\0')
 	    {
-	      error ("invalid file name '%s'", fname);
+	      error("invalid file name '%s'", fname);
 	      goto had_errors;
 	    }
 	}
 
       // At this point, name is the D source file name stripped of
       // its path and extension.
-      Identifier *id = Lexer::idPool (name);
-      Module *m = new Module (fname, id, global.params.doDocComments,
-			      global.params.doHdrGeneration);
-      modules.push (m);
+      Identifier *id = Identifier::idPool(name);
+      Module *m = new Module(fname, id, global.params.doDocComments,
+			     global.params.doHdrGeneration);
+      modules.push(m);
 
-      if (!strcmp (in_fnames[i], main_input_filename))
+      if (!strcmp(in_fnames[i], main_input_filename))
 	output_module = m;
     }
 
@@ -989,13 +992,13 @@ d_parse_file()
   // TemplateInstance puts itself somwhere during ::semantic, thus it has
   // to know the current module.
 
-  gcc_assert (output_module);
+  gcc_assert(output_module);
 
   // Read files
   for (size_t i = 0; i < modules.dim; i++)
     {
       Module *m = modules[i];
-      m->read (Loc());
+      m->read(Loc());
     }
 
   // Parse files
@@ -1004,20 +1007,20 @@ d_parse_file()
       Module *m = modules[i];
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "parse     %s\n", m->toChars());
+	fprintf(global.stdmsg, "parse     %s\n", m->toChars());
 
       if (!Module::rootModule)
 	Module::rootModule = m;
 
       m->importedFrom = m;
       m->parse();
-      d_gcc_magic_module (m);
+      Target::loadModule(m);
 
       if (m->isDocFile)
 	{
 	  gendocfile(m);
 	  // Remove m from list of modules
-	  modules.remove (i);
+	  modules.remove(i);
 	  i--;
 	}
     }
@@ -1039,7 +1042,7 @@ d_parse_file()
 	    continue;
 
 	  if (global.params.verbose)
-	    fprintf (global.stdmsg, "import    %s\n", m->toChars());
+	    fprintf(global.stdmsg, "import    %s\n", m->toChars());
 
 	  genhdrfile(m);
 	}
@@ -1054,9 +1057,9 @@ d_parse_file()
       Module *m = modules[i];
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "importall %s\n", m->toChars());
+	fprintf(global.stdmsg, "importall %s\n", m->toChars());
 
-      m->importAll (NULL);
+      m->importAll(NULL);
     }
 
   if (global.errors)
@@ -1068,7 +1071,7 @@ d_parse_file()
       Module *m = modules[i];
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "semantic  %s\n", m->toChars());
+	fprintf(global.stdmsg, "semantic  %s\n", m->toChars());
 
       m->semantic();
     }
@@ -1090,13 +1093,20 @@ d_parse_file()
       goto had_errors;
     }
 
+  // Process all built-in modules or functions now for CTFE.
+  while (builtin_modules.dim != 0)
+    {
+      Module *m = builtin_modules.pop();
+      d_maybe_set_builtin(m);
+    }
+
   // Do pass 2 semantic analysis
   for (size_t i = 0; i < modules.dim; i++)
     {
       Module *m = modules[i];
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "semantic2 %s\n", m->toChars());
+	fprintf(global.stdmsg, "semantic2 %s\n", m->toChars());
 
       m->semantic2();
     }
@@ -1110,12 +1120,19 @@ d_parse_file()
       Module *m = modules[i];
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "semantic3 %s\n", m->toChars());
+	fprintf(global.stdmsg, "semantic3 %s\n", m->toChars());
 
       m->semantic3();
     }
 
   Module::runDeferredSemantic3();
+
+  // Check again, incase semantic3 pass loaded any more modules.
+  while (builtin_modules.dim != 0)
+    {
+      Module *m = builtin_modules.pop();
+      d_maybe_set_builtin(m);
+    }
 
   if (global.errors)
     goto had_errors;
@@ -1126,13 +1143,13 @@ d_parse_file()
 
       if (global.params.moduleDepsFile)
 	{
-	  File deps (global.params.moduleDepsFile);
-	  deps.setbuffer ((void *) ob->data, ob->offset);
+	  File deps(global.params.moduleDepsFile);
+	  deps.setbuffer((void *) ob->data, ob->offset);
 	  deps.ref = 1;
 	  writeFile(Loc(), &deps);
 	}
       else
-	fprintf (global.stdmsg, "%.*s", (int) ob->offset, (char *) ob->data);
+	fprintf(global.stdmsg, "%.*s", (int) ob->offset, (char *) ob->data);
     }
 
   if (global.params.makeDeps)
@@ -1140,19 +1157,19 @@ d_parse_file()
       for (size_t i = 0; i < modules.dim; i++)
 	{
 	  Module *m = modules[i];
-	  deps_write (m);
+	  deps_write(m);
 	}
 
       OutBuffer *ob = global.params.makeDeps;
       if (global.params.makeDepsFile)
 	{
-	  File deps (global.params.makeDepsFile);
-	  deps.setbuffer ((void *) ob->data, ob->offset);
+	  File deps(global.params.makeDepsFile);
+	  deps.setbuffer((void *) ob->data, ob->offset);
 	  deps.ref = 1;
 	  writeFile(Loc(), &deps);
 	}
       else
-	fprintf (global.stdmsg, "%.*s", (int) ob->offset, (char *) ob->data);
+	fprintf(global.stdmsg, "%.*s", (int) ob->offset, (char *) ob->data);
     }
 
   // Do not attempt to generate output files if errors or warnings occurred
@@ -1160,9 +1177,9 @@ d_parse_file()
     goto had_errors;
 
   if (fonly_arg)
-    output_modules.push (output_module);
+    output_modules.push(output_module);
   else
-    output_modules.append (&modules);
+    output_modules.append(&modules);
 
   // Generate output files
   if (global.params.doJsonGeneration)
@@ -1175,8 +1192,8 @@ d_parse_file()
 
       if (name && name[0] == '-' && name[1] == 0)
 	{
-	  size_t n = fwrite (buf.data, 1, buf.offset, global.stdmsg);
-	  gcc_assert (n == buf.offset);
+	  size_t n = fwrite(buf.data, 1, buf.offset, global.stdmsg);
+	  gcc_assert(n == buf.offset);
 	}
       else
 	{
@@ -1217,20 +1234,20 @@ d_parse_file()
 	continue;
 
       if (global.params.verbose)
-	fprintf (global.stdmsg, "code      %s\n", m->toChars());
+	fprintf(global.stdmsg, "code      %s\n", m->toChars());
 
       if (!flag_syntax_only)
 	{
 	  if ((entrypoint != NULL) && (m == rootmodule))
-	    entrypoint->genobjfile (false);
+	    entrypoint->genobjfile(false);
 
-	  m->genobjfile (false);
+	  m->genobjfile(false);
 	}
     }
 
   // And end the main input file, if the debug writer wants it.
   if (debug_hooks->start_end_main_source_file)
-    (*debug_hooks->end_source_file) (0);
+    (*debug_hooks->end_source_file)(0);
 
  had_errors:
   // Add D frontend error count to GCC error count to to exit with error status
@@ -1239,10 +1256,10 @@ d_parse_file()
   d_finish_module();
 
   // Write out globals.
-  if (vec_safe_length (global_declarations) != 0)
+  if (vec_safe_length(global_declarations) != 0)
     {
-      d_finish_compilation (global_declarations->address(),
-			    global_declarations->length());
+      d_finish_compilation(global_declarations->address(),
+			   global_declarations->length());
     }
 
   output_module = NULL;
@@ -1263,10 +1280,8 @@ d_type_for_mode(machine_mode mode, int unsignedp)
   if (mode == DImode)
     return unsignedp ? ulong_type_node : long_type_node;
 
-#if HOST_BITS_PER_WIDE_INT >= 64
   if (mode == TYPE_MODE(cent_type_node))
     return unsignedp ? ucent_type_node : cent_type_node;
-#endif
 
   if (mode == TYPE_MODE(float_type_node))
     return float_type_node;
@@ -1326,6 +1341,9 @@ d_type_for_size(unsigned bits, int unsignedp)
   if (bits <= TYPE_PRECISION(long_type_node))
     return unsignedp ? ulong_type_node : long_type_node;
 
+  if (bits <= TYPE_PRECISION(cent_type_node))
+    return unsignedp ? ucent_type_node : cent_type_node;
+
   return 0;
 }
 
@@ -1336,16 +1354,18 @@ d_signed_or_unsigned_type(int unsignedp, tree type)
       || TYPE_UNSIGNED(type) == (unsigned) unsignedp)
     return type;
 
-#if HOST_BITS_PER_WIDE_INT >= 64
   if (TYPE_PRECISION(type) == TYPE_PRECISION(cent_type_node))
     return unsignedp ? ucent_type_node : cent_type_node;
-#endif
+
   if (TYPE_PRECISION(type) == TYPE_PRECISION(long_type_node))
     return unsignedp ? ulong_type_node : long_type_node;
+
   if (TYPE_PRECISION(type) == TYPE_PRECISION(int_type_node))
     return unsignedp ? uint_type_node : int_type_node;
+
   if (TYPE_PRECISION(type) == TYPE_PRECISION(short_type_node))
     return unsignedp ? ushort_type_node : short_type_node;
+
   if (TYPE_PRECISION(type) == TYPE_PRECISION(byte_type_node))
     return unsignedp ? ubyte_type_node : byte_type_node;
 
@@ -1364,30 +1384,11 @@ d_signed_type(tree type)
   return d_signed_or_unsigned_type(0, type);
 }
 
-// Type promotion for variable arguments.
-// This is needed for varargs to work on certain targets.
+// All promotions for variable arguments are handled by the frontend.
 
 static tree
 d_type_promotes_to(tree type)
 {
-  tree ptype = targetm.promoted_type(type);
-  if (ptype)
-    return ptype;
-
-  if (TYPE_MAIN_VARIANT(type) == float_type_node)
-    return double_type_node;
-
-  if (INTEGRAL_TYPE_P(type)
-      && (TYPE_PRECISION(type) <= TYPE_PRECISION(integer_type_node)))
-    {
-      // Preserve unsignedness if not really getting any wider.
-      if (TYPE_UNSIGNED(type)
-	  && (TYPE_PRECISION(type) == TYPE_PRECISION(integer_type_node)))
-	return unsigned_type_node;
-
-      return integer_type_node;
-    }
-
   return type;
 }
 

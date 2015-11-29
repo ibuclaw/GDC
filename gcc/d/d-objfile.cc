@@ -30,6 +30,7 @@
 #include "dfrontend/template.h"
 #include "dfrontend/nspace.h"
 #include "dfrontend/target.h"
+#include "dfrontend/hdrgen.h"
 
 #include "tree.h"
 #include "tree-iterator.h"
@@ -55,6 +56,7 @@
 #include "d-lang.h"
 #include "d-objfile.h"
 #include "d-codegen.h"
+#include "d-dmd-gcc.h"
 #include "id.h"
 
 static FuncDeclaration *build_call_function (const char *, vec<FuncDeclaration *>, bool);
@@ -62,7 +64,6 @@ static Symbol *build_emutls_function (vec<VarDeclaration *> tlsVars);
 static Symbol *build_ctor_function (const char *, vec<FuncDeclaration *>, vec<VarDeclaration *>);
 static Symbol *build_dtor_function (const char *, vec<FuncDeclaration *>);
 static Symbol *build_unittest_function (const char *, vec<FuncDeclaration *>);
-static bool output_declaration_p (Dsymbol *dsym);
 
 // Module info.  Assuming only one module per run of the compiler.
 ModuleInfo *current_module_info;
@@ -89,6 +90,22 @@ Symbol::Symbol()
   this->frameInfo = NULL;
 }
 
+// Returns true if DSYM is from the gcc.attribute module.
+
+static bool
+gcc_attribute_p(Dsymbol *dsym)
+{
+  ModuleDeclaration *md = dsym->getModule()->md;
+
+  if (md && md->packages && md->packages->dim == 1)
+    {
+      if (!strcmp((*md->packages)[0]->string, "gcc")
+	  && !strcmp(md->id->string, "attribute"))
+	return true;
+    }
+
+  return false;
+}
 
 void
 Dsymbol::toObjFile(bool)
@@ -243,11 +260,12 @@ StructDeclaration::toObjFile(bool)
   if (isAnonymous() || !members)
     return;
 
-  if (!output_declaration_p (this))
+  // Don't emit any symbols from gcc.attribute module.
+  if (gcc_attribute_p(this))
     return;
 
   // Generate TypeInfo
-  type->genTypeInfo(NULL);
+  genTypeInfo(type, NULL);
 
   // Generate static initialiser
   toInitializer();
@@ -306,7 +324,7 @@ ClassDeclaration::toObjFile(bool)
   d_finish_symbol (sinit);
 
   // Put out the TypeInfo
-  type->genTypeInfo(NULL);
+  genTypeInfo(type, NULL);
 
   // must be ClassInfo.size
   size_t offset = CLASSINFO_SIZE;
@@ -397,6 +415,15 @@ ClassDeclaration::toObjFile(bool)
 
   if (ctor)
     flags |= ClassFlags::hasCtor;
+
+  for (ClassDeclaration *cd = this; cd; cd = cd->baseClass)
+    {
+      if (cd->dtor)
+	{
+	  flags |= ClassFlags::hasDtor;
+	  break;
+	}
+    }
 
   if (isabstract)
     flags |= ClassFlags::isAbstract;
@@ -574,7 +601,7 @@ Lhaspointers:
 		    {
 		      deprecation ("use of %s%s hidden by %s is deprecated. "
 				   "Use 'alias %s = %s.%s;' to introduce base class overload set.",
-				   fd->toPrettyChars(), Parameter::argsTypesToChars(tf->parameters, tf->varargs), toChars(),
+				   fd->toPrettyChars(), parametersTypeToChars(tf->parameters, tf->varargs), toChars(),
 				   fd->toChars(), fd->parent->toChars(), fd->toChars());
 		    }
 		  else
@@ -654,7 +681,7 @@ InterfaceDeclaration::toObjFile(bool)
   toSymbol();
 
   // Put out the TypeInfo
-  type->genTypeInfo(NULL);
+  genTypeInfo(type, NULL);
   type->vtinfo->toObjFile(false);
 
   /* Put out the ClassInfo.
@@ -780,7 +807,7 @@ EnumDeclaration::toObjFile(bool)
     return;
 
   // Generate TypeInfo
-  type->genTypeInfo(NULL);
+  genTypeInfo(type, NULL);
 
   TypeEnum *tc = (TypeEnum *) type;
   if (tc->sym->members && !type->isZeroInit())
@@ -1080,122 +1107,56 @@ Module::genmoduleinfo()
   build_moduleinfo (msym);
 }
 
-// For nested functions in particular, unnest DECL in the cgraph,
-// as all static chain passing is handled by the front-end.
-
-static void
-unnest_function(tree decl)
-{
-  struct cgraph_node *node = cgraph_node::get_create(decl);
-
-  if (node->origin)
-    node->unnest();
-}
-
-// Returns true if we want to compile the declaration DSYM.
-
-static bool
-output_declaration_p (Dsymbol *dsym)
-{
-  // If errors occurred compiling it.
-  if (dsym->isDeclaration())
-    {
-      Type *t = ((Declaration *) dsym)->type;
-
-      if (t->ty == Terror)
-	return false;
-
-      if (t->ty == Tfunction)
-	{
-	  TypeFunction *tf = (TypeFunction *) t;
-	  if (tf->next == NULL || tf->next->ty == Terror)
-	    return false;
-	}
-    }
-
-  // Don't emit any symbols from gcc.attribute module.
-  ModuleDeclaration *md = dsym->getModule()->md;
-  if (md && md->packages && md->packages->dim == 1)
-    {
-      if (!strcmp ((*md->packages)[0]->string, "gcc")
-	  && !strcmp (md->id->string, "attribute"))
-	return false;
-    }
-
-  FuncDeclaration *fd = dsym->isFuncDeclaration();
-
-  if (fd != NULL)
-    {
-      if (fd->isNested())
-	{
-	  // Typically, an error occurred whilst compiling
-	  if (fd->fbody && !fd->vthis)
-	    {
-	      gcc_assert (global.errors);
-	      return false;
-	    }
-
-	  FuncDeclaration *fdp = fd->toParent2()->isFuncDeclaration();
-	  if (fdp && fdp->semanticRun < PASSobj)
-	    {
-	      // Parent failed to compile, but errors were gagged.
-	      if (fdp->semantic3Errors)
-		return false;
-
-	      if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
-		{
-		  udp->deferredNested.push(fd);
-		  return false;
-		}
-	    }
-	}
-
-      for (FuncDeclaration *fdp = fd; fdp != NULL;)
-	{
-      	  if (!fdp->isInstantiated() && fdp->inNonRoot())
-    	    return false;
-
-      	  if (!fdp->isNested())
-	    break;
-
-	  fdp = fdp->toParent2()->isFuncDeclaration();
-	}
-    }
-
-  if (!flag_emit_templates)
-    return !D_DECL_IS_TEMPLATE (dsym->toSymbol()->Stree);
-
-  return true;
-}
-
 // Finish up a function declaration and compile it all the way
 // down to assembler language output.
 
 void
-FuncDeclaration::toObjFile(bool force_p)
+FuncDeclaration::toObjFile(bool)
 {
   // Already generated the function.
-  if (semanticRun >= PASSobj)
+  if (this->semanticRun >= PASSobj)
+    return;
+
+  // Don't emit any symbols from gcc.attribute module.
+  if (gcc_attribute_p(this))
     return;
 
   // Not emitting unittest functions.
   if (!global.params.useUnitTests && this->isUnitTestDeclaration())
     return;
 
-  tree fndecl = toSymbol()->Stree;
-
-  // Do this even if we are not emitting the body.
-  // Such as when when -fno-emit-templates is in effect.
-  unnest_function(fndecl);
-
-  if (!fbody)
+  // Check if any errors occurred when running semantic.
+  if (this->type->ty == Tfunction)
     {
-      rest_of_decl_compilation (fndecl, 1, 0);
-      return;
+      TypeFunction *tf = (TypeFunction *) this->type;
+      if (tf->next == NULL || tf->next->ty == Terror)
+	return;
     }
 
-  if (!force_p && !output_declaration_p(this))
-    return;
+  if (this->isNested())
+    {
+      // Typically, an error occurred whilst compiling
+      if (this->fbody && !this->vthis)
+	{
+	  gcc_assert(global.errors);
+	  return;
+	}
+
+      FuncDeclaration *fdp = this->toParent2()->isFuncDeclaration();
+      if (fdp && fdp->semanticRun < PASSobj)
+	{
+	  // Parent failed to compile, but errors were gagged.
+	  if (fdp->semantic3Errors)
+	    return;
+
+	  // Defer until outer unittest has been emitted.
+	  if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
+	    {
+	      udp->deferredNested.push(this);
+	      return;
+	    }
+	}
+    }
 
   // Ensure all semantic passes have ran.
   if (semanticRun < PASSsemantic3)
@@ -1206,6 +1167,21 @@ FuncDeclaration::toObjFile(bool force_p)
 
   if (global.errors)
     return;
+
+  tree fndecl = toSymbol()->Stree;
+
+  // For nested functions in particular, unnest fndecl in the cgraph, as
+  // all static chain passing is handled by the front-end.  Do this even
+  // if we are not emitting the body.
+  struct cgraph_node *node = cgraph_node::get_create(fndecl);
+  if (node->origin)
+    node->unnest();
+
+  if (!fbody)
+    {
+      rest_of_decl_compilation (fndecl, 1, 0);
+      return;
+    }
 
   // Start generating code for this function.
   gcc_assert(this->semanticRun == PASSsemantic3done);
@@ -1669,20 +1645,20 @@ get_unique_name (tree decl, const char *prefix)
 // Return the COMDAT group into which DECL should be placed.
 
 static tree
-d_comdat_group (tree decl)
+d_comdat_group(tree decl)
 {
   // If already part of a comdat group, use that.
   if (DECL_COMDAT_GROUP (decl))
     return DECL_COMDAT_GROUP (decl);
 
-  return decl;
+  return DECL_ASSEMBLER_NAME (decl);
 }
 
 // Set DECL up to have the closest approximation of "initialized common"
 // linkage available.
 
 void
-d_comdat_linkage (tree decl)
+d_comdat_linkage(tree decl)
 {
   // Weak definitions have to be public.
   if (!TREE_PUBLIC (decl))
@@ -1694,12 +1670,12 @@ d_comdat_linkage (tree decl)
 
   // The following makes assumptions about the behavior of make_decl_one_only.
   if (SUPPORTS_ONE_ONLY)
-    make_decl_one_only (decl, d_comdat_group (decl));
+    make_decl_one_only(decl, d_comdat_group(decl));
   else if (SUPPORTS_WEAK)
     {
       tree decl_init = DECL_INITIAL (decl);
       DECL_INITIAL (decl) = integer_zero_node;
-      make_decl_one_only (decl, d_comdat_group (decl));
+      make_decl_one_only(decl, d_comdat_group(decl));
       DECL_INITIAL (decl) = decl_init;
     }
   else if (TREE_CODE (decl) == FUNCTION_DECL
@@ -1714,13 +1690,32 @@ d_comdat_linkage (tree decl)
     DECL_COMMON (decl) = 1;
 
   DECL_COMDAT (decl) = 1;
+
+  symtab_node *node = symtab_node::get(decl);
+  if (!node->same_comdat_group)
+    {
+      // Identical symbols go in the same comdat group.
+      static hash_map<tree, symtab_node *> comdat_list(251);
+      bool existed;
+
+      symtab_node **entry = &comdat_list.get_or_insert(node->get_comdat_group(),
+						       &existed);
+      if (!existed)
+	*entry = node;
+      else
+	{
+	  node->add_to_same_comdat_group(*entry);
+	  // Note that this function is now never emitted.
+	  DECL_ABSTRACT_P (decl) = 1;
+	}
+    }
 }
 
 // Set a DECL's STATIC and EXTERN based on the decl's storage class
 // and if it is to be emitted in this module.
 
 void
-setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
+setup_symbol_storage(Dsymbol *dsym, tree decl, bool public_p)
 {
   Declaration *rd = dsym->isDeclaration();
 
@@ -1728,7 +1723,7 @@ setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
       || (VAR_P (decl) && (rd && rd->isDataseg()))
       || (TREE_CODE (decl) == FUNCTION_DECL))
     {
-      bool local_p = output_module_p (dsym->getModule());
+      bool local_p = output_module_p(dsym->getModule());
       Dsymbol *sym = dsym->toParent();
 
       while (sym)
@@ -1738,8 +1733,8 @@ setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
 	    {
 	      D_DECL_ONE_ONLY (decl) = 1;
 	      D_DECL_IS_TEMPLATE (decl) = 1;
-	      local_p = flag_emit_templates
-		&& output_module_p (ti->instantiatingModule);
+	      DECL_ABSTRACT_P (decl) = !flag_emit_templates;
+	      local_p = output_module_p(ti->minst);
 	      break;
 	    }
 	  sym = sym->toParent();
@@ -1760,10 +1755,7 @@ setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
 
       // Tell backend this is a thread local decl.
       if (vd && vd->isDataseg() && vd->isThreadlocal())
-	set_decl_tls_model (decl, decl_default_tls_model (decl));
-
-      if (rd && rd->storage_class & STCcomdat)
-	D_DECL_ONE_ONLY (decl) = 1;
+	set_decl_tls_model(decl, decl_default_tls_model(decl));
 
       // Do this by default, but allow private templates to override
       if (public_p || !fd || !fd->isNested())
@@ -1776,7 +1768,7 @@ setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
 	TREE_PROTECTED (decl) = 1;
 
       if (D_DECL_ONE_ONLY (decl))
-	d_comdat_linkage (decl);
+	d_comdat_linkage(decl);
     }
   else
     {
@@ -1788,10 +1780,10 @@ setup_symbol_storage (Dsymbol *dsym, tree decl, bool public_p)
   if (rd && rd->userAttribDecl)
     {
       Expressions *attrs = rd->userAttribDecl->getAttributes();
-      decl_attributes (&decl, build_attributes (attrs), 0);
+      decl_attributes(&decl, build_attributes(attrs), 0);
     }
   else if (DECL_ATTRIBUTES (decl) != NULL)
-    decl_attributes (&decl, DECL_ATTRIBUTES (decl), 0);
+    decl_attributes(&decl, DECL_ATTRIBUTES (decl), 0);
 }
 
 // Mark DECL, which is a VAR_DECL or FUNCTION_DECL as a symbol that
@@ -1904,71 +1896,80 @@ d_finish_symbol (Symbol *sym)
 }
 
 void
-d_finish_function (FuncDeclaration *fd)
+d_finish_function(FuncDeclaration *fd)
 {
   Symbol *s = fd->toSymbol();
   tree decl = s->Stree;
 
-  gcc_assert (TREE_CODE (decl) == FUNCTION_DECL);
+  gcc_assert(TREE_CODE (decl) == FUNCTION_DECL);
 
-  if (output_declaration_p (fd))
+  // If function is not needed, don't send it to backend.
+  if (DECL_ABSTRACT_P (decl))
+    return;
+
+  // If we generated the function, but it's really extern.
+  // Such as external inlinable functions or thunk aliases.
+  bool extern_p = false;
+  for (FuncDeclaration *fdp = fd; fdp != NULL;)
     {
-      if (DECL_SAVED_TREE (decl) != NULL_TREE)
+      if (fdp->inNonRoot())
 	{
-	  TREE_STATIC (decl) = 1;
-	  DECL_EXTERNAL (decl) = 0;
+	  extern_p = true;
+	  break;
 	}
 
-      if (!targetm.have_ctors_dtors)
-	{
-	  if (DECL_STATIC_CONSTRUCTOR (decl))
-	    static_ctor_list.safe_push (fd);
-	  if (DECL_STATIC_DESTRUCTOR (decl))
-	    static_dtor_list.safe_push (fd);
-	}
+      if (!fdp->isNested())
+	break;
+
+      fdp = fdp->toParent2()->isFuncDeclaration();
     }
 
-  d_add_global_declaration (decl);
-  cgraph_node::finalize_function (decl, true);
+  if (extern_p)
+    {
+      TREE_STATIC (decl) = 0;
+      DECL_EXTERNAL (decl) = 1;
+    }
+  else if (DECL_SAVED_TREE (decl) != NULL_TREE)
+    {
+      TREE_STATIC (decl) = 1;
+      DECL_EXTERNAL (decl) = 0;
+    }
+
+  if (!targetm.have_ctors_dtors)
+    {
+      if (DECL_STATIC_CONSTRUCTOR (decl))
+	static_ctor_list.safe_push(fd);
+      if (DECL_STATIC_DESTRUCTOR (decl))
+	static_dtor_list.safe_push(fd);
+    }
+
+  d_add_global_declaration(decl);
+  cgraph_node::finalize_function(decl, true);
 }
 
 // Wrapup all global declarations and start the final compilation.
 
 void
-d_finish_compilation (tree *vec, int len)
+d_finish_compilation(tree *vec, int len)
 {
   // Complete all generated thunks.
   symtab->process_same_body_aliases();
-
-  StringTable *table = new StringTable;
-  table->_init();
 
   // Process all file scopes in this compilation, and the external_scope,
   // through wrapup_global_declarations.
   for (int i = 0; i < len; i++)
     {
       tree decl = vec[i];
+      wrapup_global_declarations(&decl, 1);
 
-      // Determine if a global var/function is needed.
-      int needed = wrapup_global_declarations (&decl, 1);
-
+      // We want the static symbol to be written.
       if ((VAR_P (decl) && TREE_STATIC (decl))
 	  || TREE_CODE (decl) == FUNCTION_DECL)
-	{
-	  // Don't emit, assembler name already in symbol table.
-	  tree name = DECL_ASSEMBLER_NAME (decl);
-	  if (!table->insert (IDENTIFIER_POINTER (name), IDENTIFIER_LENGTH (name)))
-	    needed = 0;
-	  else
-	    needed = 1;
-
-	  if (needed)
-	    mark_needed (decl);
-	}
+	mark_needed(decl);
       else if (TREE_CODE (decl) == TYPE_DECL)
 	{
 	  bool toplevel = !DECL_CONTEXT (decl);
-	  rest_of_decl_compilation (decl, toplevel, 0);
+	  rest_of_decl_compilation(decl, toplevel, 0);
 	}
     }
 }
@@ -2122,7 +2123,7 @@ finish_thunk (tree thunk_decl, tree target_decl, int offset)
       && targetm_common.have_named_sections)
     {
       tree fn = target_decl;
-      struct symtab_node *symbol = symtab_node::get (target_decl);
+      symtab_node *symbol = symtab_node::get (target_decl);
 
       if (symbol != NULL && symbol->alias)
 	{
@@ -2202,8 +2203,8 @@ build_simple_function (const char *name, tree expr, bool static_ctor)
 
   TypeFunction *func_type = new TypeFunction (0, Type::tvoid, 0, LINKc);
   FuncDeclaration *func = new FuncDeclaration (mod->loc, mod->loc,
-					       Lexer::idPool (name), STCstatic, func_type);
-  func->loc = Loc(mod, 1, 0);
+					       Identifier::idPool (name), STCstatic, func_type);
+  func->loc = Loc(mod->srcfile->toChars(), 1, 0);
   func->linkage = func_type->linkage;
   func->parent = mod;
   func->protection = PROTprivate;
@@ -2243,7 +2244,7 @@ build_call_function (const char *name, vec<FuncDeclaration *> functions, bool fo
   Module *mod = current_module_decl;
   if (!mod)
     mod = d_gcc_get_output_module();
-  set_input_location(Loc(mod, 1, 0));
+  set_input_location(Loc(mod->srcfile->toChars(), 1, 0));
 
   // Shouldn't front end build these?
   for (size_t i = 0; i < functions.length(); i++)
@@ -2287,12 +2288,12 @@ build_emutls_function (vec<VarDeclaration *> tlsVars)
   TypeFunction *del_func_type = new TypeFunction (del_args, Type::tvoid, 0, LINKd, STCnothrow);
   Parameters *args = new Parameters();
   Parameter *dg_arg = new Parameter (STCscope, new TypeDelegate (del_func_type),
-				     Lexer::idPool ("dg"), NULL);
+				     Identifier::idPool ("dg"), NULL);
   args->push (dg_arg);
   TypeFunction *func_type = new TypeFunction (args, Type::tvoid, 0, LINKd, STCnothrow);
   FuncDeclaration *func = new FuncDeclaration (mod->loc, mod->loc,
-					       Lexer::idPool (name), STCstatic, func_type);
-  func->loc = Loc (mod, 1, 0);
+					       Identifier::idPool (name), STCstatic, func_type);
+  func->loc = Loc(mod->srcfile->toChars(), 1, 0);
   func->linkage = func_type->linkage;
   func->parent = mod;
   func->protection = PROTprivate;

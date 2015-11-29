@@ -16,7 +16,7 @@
 // <http://www.gnu.org/licenses/>.
 
 // Definitions for the D runtime functions.
-// Most are extern(C) - for those that are not, correct mangling must be ensured.
+// Most are extern(C) - for those that are not, ensure to use correct mangling.
 
 // Define all D runtime functions.
 // The first parameter:
@@ -94,6 +94,7 @@ DEF_D_RUNTIME(NEWITEMIT, "_d_newitemiT", P1(CONST(TYPEINFO)), VOIDPTR, ECF_NONE)
 
 // Used when calling delete on a pointer.
 DEF_D_RUNTIME(DELMEMORY, "_d_delmemory", P1(POINTER(VOIDPTR)), VOID, ECF_NONE)
+DEF_D_RUNTIME(DELSTRUCT, "_d_delstruct", P2(POINTER(VOIDPTR), TYPEINFO), VOID, ECF_NONE)
 
 // Used when new'ing an array.  The 'i' variant is for when the initialiser is
 // non-zero, and the 'm' variant is when initialising a multi-dimensional array.
@@ -165,9 +166,9 @@ DEF_D_RUNTIME(AAEQUAL, "_aaEqual", P3(CONST(TYPEINFO), AA, AA), INT, ECF_NONE)
 DEF_D_RUNTIME(AAINX, "_aaInX", P3(AA, CONST(TYPEINFO), VOIDPTR), VOIDPTR, ECF_NONE)
 
 // Used to retrieve a value from an associative array index by a key.
-// The 'Rvalue' variant returns null if the key is not found, where as aaGetX
+// The 'Rvalue' variant returns null if the key is not found, where as aaGetY
 // will create new key entry for assignment.
-DEF_D_RUNTIME(AAGETX, "_aaGetX", P4(POINTER(AA), CONST(TYPEINFO), SIZE_T, VOIDPTR), VOIDPTR, ECF_NONE)
+DEF_D_RUNTIME(AAGETY, "_aaGetY", P4(POINTER(AA), CONST(TYPEINFO), SIZE_T, VOIDPTR), VOIDPTR, ECF_NONE)
 DEF_D_RUNTIME(AAGETRVALUEX, "_aaGetRvalueX", P4(AA, CONST(TYPEINFO), SIZE_T, VOIDPTR), VOIDPTR, ECF_NONE)
 
 // Used when calling delete on a key entry in an associative array.
