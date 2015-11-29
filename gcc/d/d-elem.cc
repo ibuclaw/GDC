@@ -2006,6 +2006,7 @@ NewExp::toElem(IRState *)
   Type *tb = type->toBasetype();
   LibCall libcall;
   tree result;
+  gcc_assert(this->argprefix == NULL); // %% FIXME.
 
   if (allocator)
     gcc_assert(newargs);
