@@ -3282,6 +3282,18 @@ expand_intrinsic(tree callexp)
 	  op2 = CALL_EXPR_ARG (callexp, 1);
 	  return expand_volatile_store(op1, op2);
 
+	case INTRINSIC_POPCNT:
+	case INTRINSIC_POPCNTL:
+	  op1 = CALL_EXPR_ARG (callexp, 0);
+
+	  if (intrinsic == INTRINSIC_POPCNT)
+	    return expand_intrinsic_op(BUILT_IN_POPCOUNT, callexp, op1);
+	  else if (intrinsic == INTRINSIC_POPCNTL)
+	    return expand_intrinsic_op(BUILT_IN_POPCOUNTLL, callexp, op1);
+
+	  gcc_unreachable();
+	  break;
+
 	default:
 	  gcc_unreachable();
 	}
