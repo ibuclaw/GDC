@@ -4436,8 +4436,9 @@ Statement *TryCatchStatement::semantic(Scope *sc)
     for (size_t i = 0; i < catches->dim; i++)
     {   Catch *c = (*catches)[i];
         c->semantic(sc);
-        if (c->type->ty == Terror)
-        {   catchErrors = true;
+        if (c->errors)
+        {
+            catchErrors = true;
             continue;
         }
 
@@ -4500,6 +4501,7 @@ Catch::Catch(Loc loc, Type *t, Identifier *id, Statement *handler)
     this->type = t;
     this->ident = id;
     this->handler = handler;
+    this->errors = false;
     var = NULL;
     internalCatch = false;
 }
@@ -4523,6 +4525,7 @@ void Catch::semantic(Scope *sc)
     {
         // If enclosing is scope(success) or scope(exit), this will be placed in finally block.
         error(loc, "cannot put catch statement inside %s", Token::toChars(sc->os->tok));
+        errors = true;
     }
     if (sc->tf)
     {
@@ -4533,6 +4536,7 @@ void Catch::semantic(Scope *sc)
          * body into a nested function.
          */
         error(loc, "cannot put catch statement inside finally block");
+        errors = true;
     }
 #endif
 
@@ -4549,33 +4553,52 @@ void Catch::semantic(Scope *sc)
         type = tid;
     }
     type = type->semantic(loc, sc);
-    ClassDeclaration *cd = type->toBasetype()->isClassHandle();
-    if (!cd || ((cd != ClassDeclaration::throwable) && !ClassDeclaration::throwable->isBaseOf(cd, NULL)))
+    if (type == Type::terror)
+        errors = true;
+    else
     {
-        if (type != Type::terror)
+        ClassDeclaration *cd = type->toBasetype()->isClassHandle();
+        if (!cd)
+        {
+            error(loc, "can only catch class objects, not '%s'", type->toChars());
+            errors = true;
+        }
+        else if (cd->isCPPclass())
+        {
+            if (!Target::cppExceptions)
+            {
+                error(loc, "catching C++ class objects not supported for this target");
+                errors = true;
+            }
+            if (sc->func && !sc->intypeof && !internalCatch && sc->func->setUnsafe())
+            {
+                error(loc, "cannot catch C++ class objects in @safe code");
+                errors = true;
+            }
+        }
+        else if (cd != ClassDeclaration::throwable && !ClassDeclaration::throwable->isBaseOf(cd, NULL))
         {
             error(loc, "can only catch class objects derived from Throwable, not '%s'", type->toChars());
-            type = Type::terror;
+            errors = true;
         }
-    }
-    else if (sc->func &&
-        !sc->intypeof &&
-        !internalCatch &&
-        cd != ClassDeclaration::exception &&
-        !ClassDeclaration::exception->isBaseOf(cd, NULL) &&
-        sc->func->setUnsafe())
-    {
-        error(loc, "can only catch class objects derived from Exception in @safe code, not '%s'", type->toChars());
-        type = Type::terror;
-    }
-    else if (ident)
-    {
-        var = new VarDeclaration(loc, type, ident, NULL);
-        var->semantic(sc);
-        sc->insert(var);
-    }
-    handler = handler->semantic(sc);
+        else if (sc->func && !sc->intypeof && !internalCatch &&
+                 cd != ClassDeclaration::exception && !ClassDeclaration::exception->isBaseOf(cd, NULL) &&
+                 sc->func->setUnsafe())
+        {
+            error(loc, "can only catch class objects derived from Exception in @safe code, not '%s'", type->toChars());
+            errors = true;
+        }
 
+        if (ident)
+        {
+            var = new VarDeclaration(loc, type, ident, NULL);
+            var->semantic(sc);
+            sc->insert(var);
+        }
+        handler = handler->semantic(sc);
+        if (handler && handler->isErrorStatement())
+            errors = true;
+    }
     sc->pop();
 }
 

@@ -1562,18 +1562,32 @@ d_eh_personality()
 }
 
 static tree
-d_build_eh_type_type (tree type)
+d_build_eh_type_type(tree type)
 {
-  Type *dtype = lang_dtype (type);
-  Symbol *sym;
+  Type *dtype = lang_dtype(type);
 
   if (dtype)
     dtype = dtype->toBasetype();
 
   gcc_assert (dtype && dtype->ty == Tclass);
-  sym = ((TypeClass *) dtype)->sym->toSymbol();
 
-  return convert (ptr_type_node, build_address (sym->Stree));
+  ClassDeclaration *cd = ((TypeClass *) dtype)->sym;
+  tree decl;
+
+  // Let C++ do the RTTI generation, and just reference the symbol.
+  if (cd->cpp)
+    {
+      const char *ident = cppTypeInfoMangle(cd);
+      decl = build_decl(BUILTINS_LOCATION, VAR_DECL,
+			get_identifier(ident), unknown_type_node);
+      DECL_EXTERNAL (decl) = 1;
+      DECL_ARTIFICIAL (decl) = 1;
+      TREE_READONLY (decl) = 1;
+    }
+  else
+    decl = cd->toSymbol()->Stree;
+
+  return convert(ptr_type_node, build_address(decl));
 }
 
 void

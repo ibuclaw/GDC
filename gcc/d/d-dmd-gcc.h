@@ -31,6 +31,7 @@ FuncDeclaration *search_toString(StructDeclaration *);
 
 // Used in d-lang.cc
 void initTraitsStringTable();
+const char *cppTypeInfoMangle(Dsymbol *s);
 
 // Used in d-codegen.cc
 Expression *getTypeInfo(Type *type, Scope *sc);

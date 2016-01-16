@@ -44,6 +44,7 @@ int Target::realsize;
 int Target::realpad;
 int Target::realalignsize;
 bool Target::reverseCppOverloads;
+bool Target::cppExceptions;
 
 
 void
@@ -54,6 +55,7 @@ Target::init()
   realpad = TYPE_PRECISION(long_double_type_node) / BITS_PER_UNIT;
   realalignsize = TYPE_ALIGN_UNIT(long_double_type_node);
   reverseCppOverloads = false;
+  cppExceptions = true;
 
   // Define what type to use for size_t, ptrdiff_t.
   size_t wordsize = int_size_in_bytes(size_type_node);

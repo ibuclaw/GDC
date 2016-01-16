@@ -196,6 +196,10 @@ DEF_D_RUNTIME(SWITCH_ERROR, "_d_switch_error", P2(STRING, UINT), VOID, ECF_NORET
 // override, but instead conflicts with another method found in a base class.
 DEF_D_RUNTIME(HIDDEN_FUNC, "_d_hidden_func", P1(VOIDPTR), VOID, ECF_NORETURN)
 
+// C++ Exception Handlers.
+DEF_D_RUNTIME(CXA_BEGIN_CATCH, "__cxa_begin_catch", P1(VOIDPTR), VOIDPTR, ECF_NOTHROW)
+DEF_D_RUNTIME(CXA_END_CATCH, "__cxa_end_catch", P0(), VOID, ECF_NONE)
+
 // Remove helper macros
 #undef CONST
 #undef ARRAY

@@ -892,6 +892,13 @@ public:
             store(NULL);
         store(t);
     }
+
+    const char *mangle_typeinfo(Dsymbol *s)
+    {
+        buf.writestring("_ZTI");
+        cpp_mangle_name(s, false);
+        return buf.extractString();
+    }
 };
 
 char *toCppMangle(Dsymbol *s)
@@ -899,6 +906,13 @@ char *toCppMangle(Dsymbol *s)
     //printf("toCppMangle(%s)\n", s->toChars());
     CppMangleVisitor v;
     return v.mangleOf(s);
+}
+
+const char *cppTypeInfoMangle(Dsymbol *s)
+{
+    //printf("cppTypeInfoMangle(%s)\n", s.toChars());
+    CppMangleVisitor v;
+    return v.mangle_typeinfo(s);
 }
 
 #elif TARGET_WINDOS

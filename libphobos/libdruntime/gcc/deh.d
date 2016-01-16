@@ -55,6 +55,9 @@ static if (GNU_ARM_EABI_Unwinder)
 {
   const _Unwind_Exception_Class __gdc_exception_class
     = ['G', 'N', 'U', 'C', 'D', '_', '_', '\0'];
+
+  const _Unwind_Exception_Class __gxx_exception_class
+    = ['G', 'N', 'U', 'C', 'C', '+', '+', '\0'];
 }
 else
 {
@@ -67,8 +70,77 @@ else
 	 << 8 | cast(_Unwind_Exception_Class) '_')
 	<< 8 | cast(_Unwind_Exception_Class) '_')
        << 8 | cast(_Unwind_Exception_Class) '\0');
+
+  const _Unwind_Exception_Class __gxx_exception_class
+    = (((((((cast(_Unwind_Exception_Class) 'G'
+	     << 8 | cast(_Unwind_Exception_Class) 'N')
+	    << 8 | cast(_Unwind_Exception_Class) 'U')
+	   << 8 | cast(_Unwind_Exception_Class) 'C')
+	  << 8 | cast(_Unwind_Exception_Class) 'C')
+	 << 8 | cast(_Unwind_Exception_Class) '+')
+	<< 8 | cast(_Unwind_Exception_Class) '+')
+       << 8 | cast(_Unwind_Exception_Class) '\0');
 }
 
+extern(C++, std)
+{
+  interface type_info
+  {
+    void dtor0();
+    void dtor1();
+    bool is_pointer();
+    bool is_function();
+    bool do_catch(type_info, void**, uint);
+    bool do_upcast(void*, void**);
+  }
+}
+
+static bool
+get_adjusted_ptr(type_info catch_type, type_info throw_type, void **thrown_ptr_p)
+{
+  void *thrown_ptr = *thrown_ptr_p;
+
+  // Pointer types need to adjust the actual pointer, not
+  // the pointer to pointer that is the exception object.
+  if (throw_type.is_pointer())
+    thrown_ptr = *cast(void **) thrown_ptr;
+
+  if (catch_type.do_catch(throw_type, &thrown_ptr, 1))
+    {
+      *thrown_ptr_p = thrown_ptr;
+      return true;
+    }
+
+  return false;
+}
+
+// Structure of a C++ exception, represented as a C structure.
+// See unwind-cxx.h for the full definition.
+struct __cxa_exception
+{
+  void *exceptionType;
+  void function(void *) exceptionDestructor;
+  void function() unexpectedHandler;
+  void function() terminateHandler;
+  __cxa_exception *nextException;
+  int handlerCount;
+
+  static if (GNU_ARM_EABI_Unwinder)
+  {
+    __cxa_exception* nextPropagatingException;
+    int propagationCount;
+  }
+  else
+  {
+    int handlerSwitchValue;
+    const ubyte *actionRecord;
+    const ubyte *languageSpecificData;
+    _Unwind_Ptr catchTemp;
+    void *adjustedPtr;
+  }
+
+  _Unwind_Exception unwindHeader;
+}
 
 // A D exception object consists of a header, which is a wrapper
 // around an unwind object header with additional D specific
@@ -293,16 +365,16 @@ parse_lsda_header (_Unwind_Context *context, ubyte *p,
   return p;
 }
 
-private ClassInfo
-get_classinfo_entry(lsda_header_info *info, _uleb128_t i)
+private void *
+get_ttype_entry_for(lsda_header_info *info, _uleb128_t filter)
 {
-  _Unwind_Ptr ptr;
+  _Unwind_Ptr ttype_entry;
 
-  i *= size_of_encoded_value (info.ttype_encoding);
+  filter *= size_of_encoded_value (info.ttype_encoding);
   read_encoded_value_with_base (info.ttype_encoding, info.ttype_base,
-				info.TType - i, &ptr);
+				info.TType - filter, &ttype_entry);
 
-  return cast(ClassInfo)cast(void *)(ptr);
+  return cast(void *)ttype_entry;
 }
 
 private void
@@ -428,7 +500,7 @@ else
       actions |= state & _US_FORCE_UNWIND;
 
       // We don't know which runtime we're working with, so can't check this.
-      // However the ABI routines hide this from us, and we don't actually need to knowa
+      // However the ABI routines hide this from us, and we don't actually need to know.
       bool foreign_exception = false;
 
       return __gdc_personality_impl (1, actions, foreign_exception, ue_header, context);
@@ -624,26 +696,58 @@ __gdc_personality_impl(int iversion,
 	      // Zero filter values are cleanups.
 	      saw_cleanup = true;
 	    }
-	  else if ((actions & _UA_FORCE_UNWIND) || foreign_exception)
+	  else if ((actions & _UA_FORCE_UNWIND))
 	    {
-	      // During forced unwinding, we only run cleanups.  With a
-	      // foreign exception class, we have no class info to match.
-	      // ??? What to do about GNU Java and GNU Ada exceptions.
+	      // During forced unwinding, we only run cleanups.
 	    }
 	  else if (ar_filter > 0)
 	    {
 	      // Positive filter values are handlers.
-	      ClassInfo catch_type = get_classinfo_entry (&info, ar_filter);
+	      void *type_entry = get_ttype_entry_for(&info, ar_filter);
 
-	      // Null catch type is a catch-all handler; we can catch foreign
-	      // exceptions with this.  Otherwise we must match types.
-	      // D Note: will be performing dynamic cast twice, potentially
-	      // Once here and once at the landing pad .. unless we cached
-	      // here and had a begin_catch call.
-	      if (catch_type is null || _d_isbaseof (xh.object.classinfo, catch_type))
+	      if (!foreign_exception)
 		{
-		  saw_handler = true;
-		  break;
+		  // Null catch type is a catch-all handler; we can catch foreign
+		  // exceptions with this.  Otherwise we must match types.
+		  // D Note: will be performing dynamic cast twice, potentially
+		  // Once here and once at the landing pad .. unless we cached
+		  // here and had a begin_catch call.
+		  ClassInfo catch_type = cast(ClassInfo)type_entry;
+		  if (catch_type is null || _d_isbaseof (xh.object.classinfo, catch_type))
+		    {
+		      saw_handler = true;
+		      break;
+		    }
+		}
+	      else
+		{
+		  // ??? What to do about GNU Java and GNU Ada exceptions.
+		  if (ue_header.exception_class == __gxx_exception_class)
+		    {
+		      void *thrown_ptr = cast(void *)(ue_header + 1);
+		      __cxa_exception *cxa = (cast(__cxa_exception *) thrown_ptr) - 1;
+
+		      // Typeinfo are directly compared.
+		      if (type_entry is null
+			  || (type_entry is cxa.exceptionType)
+			  || (cxa.exceptionType !is null
+			      && get_adjusted_ptr(cast(type_info) type_entry,
+						  cast(type_info) cxa.exceptionType,
+						  &thrown_ptr)))
+			{
+			  // There's no saving between phases, so cache pointer.
+			  // __cxa_begin_catch expects this to be set.
+			  if (actions & _UA_SEARCH_PHASE)
+			    {
+			      static if (GNU_ARM_EABI_Unwinder)
+				ue_header.barrier_cache.bitpattern[0] = cast(_uw) thrown_ptr;
+			      else
+				cxa.adjustedPtr = thrown_ptr;
+			    }
+			  saw_handler = true;
+			  break;
+			}
+		    }
 		}
 	    }
 	  else
