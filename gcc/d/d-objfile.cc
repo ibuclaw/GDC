@@ -51,6 +51,7 @@
 #include "attribs.h"
 #include "debug.h"
 #include "tree-pretty-print.h"
+#include "output.h"
 
 #include "d-tree.h"
 #include "d-objfile.h"
@@ -197,15 +198,41 @@ AttribDeclaration::toObjFile()
     }
 }
 
+#define PRAGMA_LIB_SECTION_NAME ".d_pragma_libs"
+
 void
 PragmaDeclaration::toObjFile()
 {
   if (!global.params.ignoreUnsupportedPragmas)
     {
       if (ident == Id::lib)
-	warning (loc, "pragma(lib) not implemented");
-       else if (ident == Id::startaddress)
-	 warning (loc, "pragma(startaddress) not implemented");
+	{
+	  /* Embed the library names into the object file.
+	     The driver will then automatically search that library too.  */
+	  static section* sec;
+
+	  if (sec == NULL)
+	    {
+	      gcc_assert (targetm_common.have_named_sections);
+	      sec = get_section (PRAGMA_LIB_SECTION_NAME, SECTION_DEBUG, NULL);
+	    }
+	  switch_to_section (sec);
+
+	  /* Should only be one string argument per pragma(lib) declaration.  */
+	  for (size_t i = 0; i < this->args->dim; i++)
+	    {
+	      Expression *e = (*this->args)[i];
+	      gcc_assert (e->op == TOKstring);
+
+	      /* Here, we encode {len}string as a byte string.  */
+	      StringExp *se = (StringExp *) e;
+	      assemble_string ((char *) &se->len, sizeof (se->len));
+	      assemble_string ((char *) se->string, se->len);
+	    }
+
+	}
+      else if (ident == Id::startaddress)
+	warning (loc, "pragma(startaddress) not implemented");
     }
 
   AttribDeclaration::toObjFile();

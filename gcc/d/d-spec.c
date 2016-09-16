@@ -23,6 +23,7 @@
 
 #include "gcc.h"
 #include "opts.h"
+#include "simple-object.h"
 
 /* This bit is set if the arguments is a D source file. */
 #define DSOURCE		(1<<1)
@@ -595,10 +596,154 @@ lang_specific_driver (cl_decoded_option **in_decoded_options,
   *in_added_libraries = added_libraries;
 }
 
+/* Report an error, if one happened whilst searching for pragma section.  */
+
+static int
+find_pragma_error (const char *path, const char *errmsg, int err)
+{
+  if (errmsg)
+    {
+      if (err == 0)
+	error ("%s: %s", path, errmsg);
+      else
+	error ("%s: %s: %s", path, errmsg, xstrerror (err));
+
+      return -1;
+    }
+
+  return 0;
+}
+
+#define PRAGMA_LIB_SECTION_NAME ".d_pragma_libs"
+
+/* Find and return the pragma(lib) section in PBUF and PLEN if one exists
+   in the open object file passed in FD.  */
+
+static int
+find_pragma_section (int fd, const char *path, char **pbuf, size_t *plen)
+{
+  const char *errmsg;
+  int err;
+
+  *pbuf = NULL;
+  *plen = 0;
+
+  /* If we get an error here, just pretend that we didn't find any data.
+     This is the right thing to do if the error is that the file was not
+     recognized as an object file.  */
+  simple_object_read *sobj = simple_object_start_read (fd, 0, "__GNU_D",
+						       &errmsg, &err);
+  if (sobj == NULL)
+    return 0;
+
+  off_t sec_offset;
+  off_t sec_length;
+  int found = simple_object_find_section (sobj, PRAGMA_LIB_SECTION_NAME,
+					  &sec_offset, &sec_length,
+					  &errmsg, &err);
+  simple_object_release_read (sobj);
+  if (!found)
+    return find_pragma_error (path, errmsg, err);
+
+  /* The simple_object routine has given us the offset and length of the
+     pragma(lib) section in the object file, go retrieve it.  */
+  if (lseek (fd, sec_offset, SEEK_SET) < 0)
+    return find_pragma_error (path, "lseek failed while reading object data",
+			      errno);
+
+  char *buf = XNEWVEC (char, sec_length);
+  if (buf == NULL)
+    return find_pragma_error (path, "memory allocation failed while reading "
+			      "object data", errno);
+
+  ssize_t c = read (fd, buf, sec_length);
+  if (c < sec_length)
+    {
+      free (buf);
+
+      if (c < 0)
+	return find_pragma_error (path, "read failed while reading object data",
+				  errno);
+      else
+	return find_pragma_error (path, "short read while reading object data",
+				  errno);
+    }
+
+  *pbuf = buf;
+  *plen = sec_length;
+
+  return 0;
+}
+
 /* Called before linking.  Returns 0 on success and -1 on failure.  */
 
 int lang_specific_pre_link()  /* Not used for D.  */
 {
+  /* Scan all output files, which is just a char** whose only reference
+     to it's size is according to n_infiles.  We can't use the driver hook
+     `lang_specific_extra_outfiles' because we only know if outfiles needs
+     more arguments to be added after compilation has finished.  */
+  for (int i = 0; i < n_infiles; i++)
+    {
+      /* Make a terrible guess at whether this argument is an object file
+	 or a linker switch.  */
+      if (outfiles[i] == NULL || outfiles[i][0] == '-')
+	continue;
+
+      char *buf;
+      size_t len;
+
+      int fd = open (outfiles[i], O_RDONLY | O_BINARY);
+      if (fd > 0)
+	{
+	  int err = find_pragma_section (fd, outfiles[i], &buf, &len);
+	  close (fd);
+
+	  if (err < 0)
+	    return -1;
+	}
+
+      /* We found something to scan.  */
+      if (buf)
+	{
+	  char *pbuf = buf;
+	  char *end = pbuf + len;
+
+	  while (pbuf < end)
+	    {
+	      /* Extract the string length, and allocate enough to store
+		 it as `-l<string>`.  */
+	      size_t namelen = *(size_t *) pbuf;
+	      char *name = (char *) alloca (namelen + 2);
+	      size_t j;
+
+	      /* Make sure that we never read past the end of buffer.  */
+	      if (pbuf + namelen > end)
+		return find_pragma_error (outfiles[i], "corrupted data in "
+					  "pragma(lib) section", 0);
+
+	      /* We are now looking at the string, copy it.  */
+	      pbuf += sizeof (size_t);
+
+	      for (j = 0; j < namelen; j++)
+		name[2 + j] = pbuf[j];
+
+	      /* Prefix `-l` and add null terminator at the end.  */
+	      name[0] = '-';
+	      name[1] = 'l';
+	      name[namelen + 2] = '\0';
+
+	      /* Append linker option to end of outfiles.  */
+	      outfiles = XRESIZEVEC (const char *, outfiles, ++n_infiles);
+	      outfiles[n_infiles - 1] = XNEWVEC (char, namelen + 2);
+	      strcpy (CONST_CAST (char *, outfiles[n_infiles - 1]), name);
+
+	      pbuf += namelen;
+	    }
+
+	  free (buf);
+	}
+    }
   return 0;
 }
 
