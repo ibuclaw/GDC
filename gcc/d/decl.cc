@@ -1188,7 +1188,13 @@ get_symbol_decl (Declaration *decl)
       TemplateInstance *ti = decl->isInstantiated ();
       if (ti)
 	{
-	  if (!DECL_EXTERNAL (decl->csym) && ti->needsCodegen ())
+	  /* If the template instance is not a member of any module that is
+	     being compiled, or it determined to not need its code generated,
+	     then its really extern.  */
+	  if (!ti->memberOf || !ti->memberOf->isRoot () || !ti->needsCodegen ())
+	    DECL_EXTERNAL (decl->csym) = 1;
+
+	  if (!DECL_EXTERNAL (decl->csym))
 	    {
 	      /* Warn about templates instantiated in this compilation.  */
 	      if (ti == decl->parent)
@@ -1199,8 +1205,6 @@ get_symbol_decl (Declaration *decl)
 
 	      TREE_STATIC (decl->csym) = 1;
 	    }
-	  else
-	    DECL_EXTERNAL (decl->csym) = 1;
 
 	  d_comdat_linkage (decl->csym);
 
